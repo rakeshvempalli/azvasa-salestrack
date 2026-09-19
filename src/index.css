@@ -1,0 +1,57 @@
+@import "tailwindcss";
+
+@theme {
+  --color-brand-blue: #084ab8;
+  --color-brand-blue-dark: #06378a;
+  --color-brand-blue-light: #e8f0fe;
+  --color-brand-blue-subtle: #f2f6fd;
+  --color-brand-orange: #f28705;
+  --color-brand-orange-dark: #b85c00;
+  --color-brand-orange-light: #fff4e6;
+  --color-brand-orange-subtle: #fef8f2;
+  --color-brand-gray: #646260;
+  --color-brand-gray-dark: #2d2b2a;
+  --color-brand-gray-light: #f3f2f1;
+  --color-brand-gray-muted: #8e8b88;
+  --color-brand-bg: #fafaf9;
+  --color-brand-card: #ffffff;
+  --color-brand-border: #e8e7e5;
+  --font-sans: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+}
+
+:root {
+  --azvasa-blue: #084ab8;
+  --azvasa-blue-dark: #06378a;
+  --azvasa-orange: #f28705;
+  --azvasa-orange-dark: #b85c00;
+  --azvasa-gray: #646260;
+  --azvasa-gray-dark: #2d2b2a;
+  --azvasa-light-blue: #e8f0fe;
+  --azvasa-light-orange: #fff4e6;
+  --azvasa-background: #fafaf9;
+  --azvasa-card: #ffffff;
+  --azvasa-border: #e8e7e5;
+}
+
+body {
+  font-family: var(--font-sans);
+  background-color: var(--azvasa-background);
+  color: var(--azvasa-gray-dark);
+}
+
+/* Custom scrollbar matching AZVASA brand */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #f3f2f1;
+}
+::-webkit-scrollbar-thumb {
+  background: #c8c6c4;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #646260;
+}
+

@@ -1,0 +1,6 @@
+{
+  "name": "AZVASA SalesTrack",
+  "description": "Sales Tracking & Follow-up Management System for education-sector enterprise CRM",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
