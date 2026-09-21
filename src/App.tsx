@@ -34,7 +34,12 @@ import {
   deleteNotification,
   clearReadNotifications,
   syncFollowupNotifications,
-  syncUsersFromServer
+  syncUsersFromServer,
+  subscribeToStoreChanges,
+  syncAllDataFromCentralDatabase,
+  addNote,
+  addTask,
+  updateTaskStatus
 } from './lib/storage';
 
 import { Sidebar, NavTab } from './components/Sidebar';
@@ -94,15 +99,24 @@ export default function App() {
     setTasks(getTasks());
   };
 
-  // Automatically sync follow-up notifications and server users on initial load
+  // Automatically sync with centralized Firestore database and subscribe to real-time updates across all devices
   useEffect(() => {
+    // Initial fetch from centralized cloud database
+    syncAllDataFromCentralDatabase().then(() => {
+      refreshData();
+    });
+
+    // Real-time listener: when any device creates/updates data in Firestore, refresh immediately
+    const unsubscribe = subscribeToStoreChanges(() => {
+      refreshData();
+    });
+
     syncFollowupNotifications('2026-09-19');
     setNotifications(getNotifications());
-    syncUsersFromServer().then(syncedUsers => {
-      if (syncedUsers && syncedUsers.length > 0) {
-        setReps(syncedUsers);
-      }
-    });
+
+    return () => {
+      unsubscribe();
+    };
   }, []);
 
   // Auth Handlers
@@ -299,49 +313,22 @@ export default function App() {
   // Notes & Tasks handlers
   const handleAddNote = (leadId: string, content: string) => {
     if (!currentUser) return;
-    const existing = getNotes();
-    const newNote = {
-      id: `note-${Date.now()}`,
-      lead_id: leadId,
-      created_by_id: currentUser.id,
-      created_by_name: currentUser.full_name,
-      content,
-      created_at: new Date().toISOString()
-    };
-    saveNotes([newNote, ...existing]);
+    addNote(leadId, content, currentUser);
     refreshData();
   };
 
   const handleToggleTask = (taskId: string) => {
     const existing = getTasks();
-    const updated = existing.map((t: FollowupTask) => {
-      if (t.id === taskId) {
-        return {
-          ...t,
-          status: (t.status === 'Completed' ? 'Pending' : 'Completed') as 'Pending' | 'Completed'
-        };
-      }
-      return t;
-    });
-    saveTasks(updated);
-    refreshData();
+    const task = existing.find(t => t.id === taskId);
+    if (task) {
+      updateTaskStatus(taskId, task.status === 'Completed' ? 'Pending' : 'Completed');
+      refreshData();
+    }
   };
 
   const handleAddTask = (leadId: string, title: string, dueDate: string, priority: 'Low' | 'Medium' | 'High') => {
     if (!currentUser) return;
-    const existing = getTasks();
-    const newTask = {
-      id: `task-${Date.now()}`,
-      lead_id: leadId,
-      assigned_to_id: currentUser.id,
-      assigned_to_name: currentUser.full_name,
-      title,
-      due_date: dueDate,
-      status: 'Pending' as const,
-      priority,
-      created_at: new Date().toISOString()
-    };
-    saveTasks([...existing, newTask]);
+    addTask(leadId, title, dueDate, priority, currentUser);
     refreshData();
   };
 

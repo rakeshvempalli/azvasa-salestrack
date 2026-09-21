@@ -1,0 +1,64 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Users & authentication accounts
+    match /users/{userId} {
+      allow read, write: if true;
+    }
+
+    // Pipeline stages
+    match /pipeline_stages/{stageId} {
+      allow read, write: if true;
+    }
+
+    // Sales leads
+    match /leads/{leadId} {
+      allow read, write: if true;
+    }
+
+    // Lead interactions and follow-ups
+    match /interactions/{interactionId} {
+      allow read, write: if true;
+    }
+
+    // Pipeline stage movement history
+    match /stage_history/{historyId} {
+      allow read, write: if true;
+    }
+
+    // Internal notes
+    match /notes/{noteId} {
+      allow read, write: if true;
+    }
+
+    // Tasks
+    match /tasks/{taskId} {
+      allow read, write: if true;
+    }
+
+    // In-app notifications
+    match /notifications/{notificationId} {
+      allow read, write: if true;
+    }
+
+    // Audit logs
+    match /audit_logs/{auditId} {
+      allow read, write: if true;
+    }
+
+    // Email reminder logs
+    match /reminder_logs/{logId} {
+      allow read, write: if true;
+    }
+
+    // System settings
+    match /settings/{settingId} {
+      allow read, write: if true;
+    }
+
+    // Connection testing
+    match /test/{docId} {
+      allow read, write: if true;
+    }
+  }
+}

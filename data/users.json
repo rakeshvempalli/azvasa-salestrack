@@ -1,16 +1,16 @@
 [
   {
-    "id": "user-super-admin-rakhi",
-    "email": "vempallirakhi20@gmail.com",
-    "username": "rakhi",
-    "password": "Rakhi@1234",
-    "full_name": "Rakhi Vempalli (Super Admin)",
-    "role": "super_admin",
-    "status": "active",
-    "employee_id": "AZ-HQ-001",
     "designation": "Managing Director & Super Admin",
+    "role": "super_admin",
+    "id": "user-super-admin-rakhi",
+    "created_at": "2026-01-01T00:00:00Z",
     "phone": "+91 98450 99999",
+    "status": "active",
     "avatar_url": "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80",
-    "created_at": "2026-01-01T00:00:00Z"
+    "username": "rakhi",
+    "full_name": "Rakhi Vempalli (Super Admin)",
+    "email": "vempallirakhi20@gmail.com",
+    "password": "Rakhi@1234",
+    "employee_id": "AZ-HQ-001"
   }
 ]

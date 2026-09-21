@@ -1,0 +1,271 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Central user account profile for authentication and team management",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "email": { "type": "string" },
+        "username": { "type": "string" },
+        "password": { "type": "string" },
+        "full_name": { "type": "string" },
+        "phone": { "type": "string" },
+        "employee_id": { "type": "string" },
+        "designation": { "type": "string" },
+        "role": {
+          "type": "string",
+          "enum": ["super_admin", "sales_manager", "sales_rep"]
+        },
+        "status": {
+          "type": "string",
+          "enum": ["active", "inactive"]
+        },
+        "avatar_url": { "type": "string" },
+        "created_at": { "type": "string" },
+        "updated_at": { "type": "string" }
+      },
+      "required": ["id", "email", "full_name", "role", "status", "created_at"]
+    },
+    "PipelineStage": {
+      "title": "PipelineStage",
+      "description": "Pipeline deal stage definition",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "display_order": { "type": "number" },
+        "active": { "type": "boolean" },
+        "color": { "type": "string" },
+        "is_won": { "type": "boolean" },
+        "is_lost": { "type": "boolean" },
+        "created_at": { "type": "string" },
+        "updated_at": { "type": "string" }
+      },
+      "required": ["id", "name", "display_order", "active"]
+    },
+    "Lead": {
+      "title": "Lead",
+      "description": "Sales school lead record",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "school_name": { "type": "string" },
+        "location": { "type": "string" },
+        "poc_name": { "type": "string" },
+        "poc_designation": { "type": "string" },
+        "poc_contact": { "type": "string" },
+        "lead_source": { "type": "string" },
+        "channel_partner_name": { "type": "string" },
+        "product": { "type": "string" },
+        "other_product": { "type": "string" },
+        "assigned_rep_id": { "type": "string" },
+        "assigned_rep_name": { "type": "string" },
+        "current_stage_id": { "type": "string" },
+        "current_stage_name": { "type": "string" },
+        "last_interaction_date": { "type": "string" },
+        "next_action_date": { "type": "string" },
+        "next_action_remarks": { "type": "string" },
+        "created_at": { "type": "string" },
+        "updated_at": { "type": "string" }
+      },
+      "required": ["id", "school_name", "location", "poc_name", "poc_contact", "product", "current_stage_id", "created_at", "updated_at"]
+    },
+    "Interaction": {
+      "title": "Interaction",
+      "description": "Interaction and follow-up log record",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "lead_id": { "type": "string" },
+        "interaction_date": { "type": "string" },
+        "interaction_type": { "type": "string" },
+        "follow_up_remarks": { "type": "string" },
+        "next_action_date": { "type": "string" },
+        "next_action_remarks": { "type": "string" },
+        "next_action_type": { "type": "string" },
+        "attachment_url": { "type": "string" },
+        "attachment_name": { "type": "string" },
+        "created_by_id": { "type": "string" },
+        "created_by_name": { "type": "string" },
+        "contact_person": { "type": "string" },
+        "discussion_summary": { "type": "string" },
+        "stage_at_interaction": { "type": "string" },
+        "created_at": { "type": "string" }
+      },
+      "required": ["id", "lead_id", "interaction_date", "interaction_type", "follow_up_remarks", "created_by_id", "created_by_name", "created_at"]
+    },
+    "StageHistory": {
+      "title": "StageHistory",
+      "description": "History log of stage movements for leads",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "lead_id": { "type": "string" },
+        "from_stage_name": { "type": "string" },
+        "to_stage_name": { "type": "string" },
+        "changed_by_id": { "type": "string" },
+        "changed_by_name": { "type": "string" },
+        "remarks": { "type": "string" },
+        "notes": { "type": "string" },
+        "created_at": { "type": "string" },
+        "changed_at": { "type": "string" }
+      },
+      "required": ["id", "lead_id", "from_stage_name", "to_stage_name", "changed_by_id", "changed_by_name", "created_at"]
+    },
+    "InternalNote": {
+      "title": "InternalNote",
+      "description": "Internal collaboration note for a lead",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "lead_id": { "type": "string" },
+        "created_by_id": { "type": "string" },
+        "created_by_name": { "type": "string" },
+        "content": { "type": "string" },
+        "created_at": { "type": "string" }
+      },
+      "required": ["id", "lead_id", "created_by_id", "created_by_name", "content", "created_at"]
+    },
+    "FollowupTask": {
+      "title": "FollowupTask",
+      "description": "Task assigned for school lead follow-up",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "lead_id": { "type": "string" },
+        "assigned_to_id": { "type": "string" },
+        "assigned_to_name": { "type": "string" },
+        "title": { "type": "string" },
+        "due_date": { "type": "string" },
+        "status": { "type": "string", "enum": ["Pending", "Completed"] },
+        "priority": { "type": "string", "enum": ["Low", "Medium", "High"] },
+        "created_at": { "type": "string" }
+      },
+      "required": ["id", "lead_id", "assigned_to_id", "assigned_to_name", "title", "due_date", "status", "priority", "created_at"]
+    },
+    "AppNotification": {
+      "title": "AppNotification",
+      "description": "In-app notifications for users",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "user_id": { "type": "string" },
+        "type": { "type": "string" },
+        "title": { "type": "string" },
+        "message": { "type": "string" },
+        "lead_id": { "type": "string" },
+        "school_name": { "type": "string" },
+        "read": { "type": "boolean" },
+        "created_at": { "type": "string" }
+      },
+      "required": ["id", "user_id", "type", "title", "message", "read", "created_at"]
+    },
+    "AuditLog": {
+      "title": "AuditLog",
+      "description": "System activity and audit trail log",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "user_id": { "type": "string" },
+        "user_name": { "type": "string" },
+        "user_role": { "type": "string" },
+        "action": { "type": "string" },
+        "record_type": { "type": "string" },
+        "record_id": { "type": "string" },
+        "record_title": { "type": "string" },
+        "entity_type": { "type": "string" },
+        "entity_id": { "type": "string" },
+        "details": { "type": "string" },
+        "previous_value": { "type": "string" },
+        "new_value": { "type": "string" },
+        "timestamp": { "type": "string" }
+      },
+      "required": ["id", "user_id", "user_name", "action", "timestamp"]
+    },
+    "ReminderLog": {
+      "title": "ReminderLog",
+      "description": "Automated email reminder dispatched log",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "lead_id": { "type": "string" },
+        "school_name": { "type": "string" },
+        "poc_name": { "type": "string" },
+        "poc_designation": { "type": "string" },
+        "poc_contact": { "type": "string" },
+        "product": { "type": "string" },
+        "current_stage": { "type": "string" },
+        "rep_id": { "type": "string" },
+        "rep_name": { "type": "string" },
+        "rep_email": { "type": "string" },
+        "recipient_email": { "type": "string" },
+        "next_action_date": { "type": "string" },
+        "scheduled_date": { "type": "string" },
+        "latest_remarks": { "type": "string" },
+        "sent_at": { "type": "string" },
+        "status": { "type": "string", "enum": ["sent", "pending", "failed"] }
+      },
+      "required": ["id", "lead_id", "school_name", "rep_id", "sent_at", "status"]
+    },
+    "SystemSetting": {
+      "title": "SystemSetting",
+      "description": "System configuration and environment preferences",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "key": { "type": "string" },
+        "value": { "type": "string" },
+        "description": { "type": "string" }
+      },
+      "required": ["id", "key", "value"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "UserProfile",
+      "description": "Central user database collection accessible across all devices"
+    },
+    "/pipeline_stages/{stageId}": {
+      "schema": "PipelineStage",
+      "description": "Centralized pipeline stage definitions"
+    },
+    "/leads/{leadId}": {
+      "schema": "Lead",
+      "description": "Centralized school leads collection accessible across all devices"
+    },
+    "/interactions/{interactionId}": {
+      "schema": "Interaction",
+      "description": "Centralized lead interactions and follow-ups collection"
+    },
+    "/stage_history/{historyId}": {
+      "schema": "StageHistory",
+      "description": "Centralized stage transition audit logs"
+    },
+    "/notes/{noteId}": {
+      "schema": "InternalNote",
+      "description": "Centralized internal notes on leads"
+    },
+    "/tasks/{taskId}": {
+      "schema": "FollowupTask",
+      "description": "Centralized follow-up task records"
+    },
+    "/notifications/{notificationId}": {
+      "schema": "AppNotification",
+      "description": "Centralized notification records"
+    },
+    "/audit_logs/{auditId}": {
+      "schema": "AuditLog",
+      "description": "Centralized system audit log records"
+    },
+    "/reminder_logs/{logId}": {
+      "schema": "ReminderLog",
+      "description": "Centralized email reminder dispatch logs"
+    },
+    "/settings/{settingId}": {
+      "schema": "SystemSetting",
+      "description": "Centralized system settings"
+    }
+  }
+}

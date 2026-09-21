@@ -6,7 +6,9 @@ import {
   StageHistory, 
   AppNotification, 
   AuditLog, 
-  ReminderLog 
+  ReminderLog,
+  InternalNote,
+  FollowupTask
 } from '../types';
 import { 
   INITIAL_PROFILES, 
@@ -18,19 +20,208 @@ import {
   INITIAL_AUDIT_LOGS, 
   INITIAL_REMINDER_LOGS 
 } from '../data/seedData';
+import { 
+  DEFAULT_SUPER_ADMIN, 
+  fetchUsersFromDatabase, 
+  saveUserToDatabase, 
+  deleteUserFromDatabase, 
+  subscribeToDatabaseUsers,
+  fetchStagesFromDatabase,
+  saveStageToDatabase,
+  deleteStageFromDatabase,
+  subscribeToDatabaseStages,
+  fetchLeadsFromDatabase,
+  saveLeadToDatabase,
+  deleteLeadFromDatabase,
+  subscribeToDatabaseLeads,
+  fetchInteractionsFromDatabase,
+  saveInteractionToDatabase,
+  deleteInteractionFromDatabase,
+  subscribeToDatabaseInteractions,
+  fetchStageHistoryFromDatabase,
+  saveStageHistoryToDatabase,
+  subscribeToDatabaseStageHistory,
+  fetchNotesFromDatabase,
+  saveNoteToDatabase,
+  deleteNoteFromDatabase,
+  subscribeToDatabaseNotes,
+  fetchTasksFromDatabase,
+  saveTaskToDatabase,
+  deleteTaskFromDatabase,
+  subscribeToDatabaseTasks,
+  fetchNotificationsFromDatabase,
+  saveNotificationToDatabase,
+  deleteNotificationFromDatabase,
+  subscribeToDatabaseNotifications,
+  fetchAuditLogsFromDatabase,
+  saveAuditLogToDatabase,
+  subscribeToDatabaseAuditLogs,
+  fetchReminderLogsFromDatabase,
+  saveReminderLogToDatabase,
+  subscribeToDatabaseReminderLogs
+} from './firebase';
 
-const STORAGE_KEYS = {
-  CURRENT_USER: 'azvasa_current_user',
-  PROFILES: 'azvasa_profiles',
-  STAGES: 'azvasa_pipeline_stages',
-  LEADS: 'azvasa_leads',
-  INTERACTIONS: 'azvasa_interactions',
-  STAGE_HISTORY: 'azvasa_stage_history',
-  NOTIFICATIONS: 'azvasa_notifications',
-  AUDIT_LOGS: 'azvasa_audit_logs',
-  REMINDER_LOGS: 'azvasa_reminder_logs',
-  INITIALIZED: 'azvasa_clean_slate_v12'
-};
+// ============================================================================
+// CENTRAL IN-MEMORY CACHE SYNCHRONIZED ACROSS ALL DEVICES VIA FIRESTORE
+// ============================================================================
+let centralProfilesCache: UserProfile[] = [DEFAULT_SUPER_ADMIN];
+let centralStagesCache: PipelineStage[] = [...INITIAL_STAGES];
+let centralLeadsCache: Lead[] = [...INITIAL_LEADS];
+let centralInteractionsCache: Interaction[] = [...INITIAL_INTERACTIONS];
+let centralStageHistoryCache: StageHistory[] = [...INITIAL_STAGE_HISTORY];
+let centralNotesCache: InternalNote[] = [];
+let centralTasksCache: FollowupTask[] = [];
+let centralNotificationsCache: AppNotification[] = [...INITIAL_NOTIFICATIONS];
+let centralAuditLogsCache: AuditLog[] = [...INITIAL_AUDIT_LOGS];
+let centralReminderLogsCache: ReminderLog[] = [...INITIAL_REMINDER_LOGS];
+
+// Change listeners for instant UI updates when any device changes Firestore data
+type StoreChangeListener = () => void;
+const storeListeners: Set<StoreChangeListener> = new Set();
+
+export function subscribeToStoreChanges(listener: StoreChangeListener): () => void {
+  storeListeners.add(listener);
+  return () => {
+    storeListeners.delete(listener);
+  };
+}
+
+function notifyStoreListeners() {
+  storeListeners.forEach(listener => {
+    try {
+      listener();
+    } catch (err) {
+      console.error('Error notifying store listener:', err);
+    }
+  });
+}
+
+// Set up real-time bidirectional subscriptions to centralized Firestore database
+if (typeof window !== 'undefined') {
+  // 1. Users
+  subscribeToDatabaseUsers((users) => {
+    if (users && users.length > 0) {
+      centralProfilesCache = users;
+      notifyStoreListeners();
+    }
+  });
+
+  // 2. Stages
+  subscribeToDatabaseStages((stages) => {
+    if (stages && stages.length > 0) {
+      centralStagesCache = stages;
+      notifyStoreListeners();
+    }
+  });
+
+  // 3. Leads
+  subscribeToDatabaseLeads((leads) => {
+    centralLeadsCache = leads;
+    notifyStoreListeners();
+  });
+
+  // 4. Interactions
+  subscribeToDatabaseInteractions((interactions) => {
+    centralInteractionsCache = interactions;
+    notifyStoreListeners();
+  });
+
+  // 5. Stage History
+  subscribeToDatabaseStageHistory((history) => {
+    centralStageHistoryCache = history;
+    notifyStoreListeners();
+  });
+
+  // 6. Notes
+  subscribeToDatabaseNotes((notes) => {
+    centralNotesCache = notes;
+    notifyStoreListeners();
+  });
+
+  // 7. Tasks
+  subscribeToDatabaseTasks((tasks) => {
+    centralTasksCache = tasks;
+    notifyStoreListeners();
+  });
+
+  // 8. Notifications
+  subscribeToDatabaseNotifications((notifs) => {
+    centralNotificationsCache = notifs;
+    notifyStoreListeners();
+  });
+
+  // 9. Audit Logs
+  subscribeToDatabaseAuditLogs((logs) => {
+    centralAuditLogsCache = logs;
+    notifyStoreListeners();
+  });
+
+  // 10. Reminder Logs
+  subscribeToDatabaseReminderLogs((logs) => {
+    centralReminderLogsCache = logs;
+    notifyStoreListeners();
+  });
+
+  // Clean up legacy localStorage keys to enforce centralized single source of truth
+  try {
+    localStorage.removeItem('azvasa_profiles');
+    localStorage.removeItem('azvasa_leads');
+    localStorage.removeItem('azvasa_pipeline_stages');
+    localStorage.removeItem('azvasa_interactions');
+    localStorage.removeItem('azvasa_stage_history');
+    localStorage.removeItem('azvasa_notifications');
+    localStorage.removeItem('azvasa_audit_logs');
+    localStorage.removeItem('azvasa_reminder_logs');
+    localStorage.removeItem('azvasa_notes');
+    localStorage.removeItem('azvasa_tasks');
+    localStorage.removeItem('azvasa_notes_clean');
+    localStorage.removeItem('azvasa_tasks_clean');
+  } catch {}
+}
+
+// Fetch all collections from central database on demand
+export async function syncAllDataFromCentralDatabase(): Promise<void> {
+  try {
+    const [
+      users,
+      stages,
+      leads,
+      interactions,
+      history,
+      notes,
+      tasks,
+      notifs,
+      audit,
+      reminders
+    ] = await Promise.all([
+      fetchUsersFromDatabase(),
+      fetchStagesFromDatabase(),
+      fetchLeadsFromDatabase(),
+      fetchInteractionsFromDatabase(),
+      fetchStageHistoryFromDatabase(),
+      fetchNotesFromDatabase(),
+      fetchTasksFromDatabase(),
+      fetchNotificationsFromDatabase(),
+      fetchAuditLogsFromDatabase(),
+      fetchReminderLogsFromDatabase()
+    ]);
+
+    if (users && users.length > 0) centralProfilesCache = users;
+    if (stages && stages.length > 0) centralStagesCache = stages;
+    if (leads) centralLeadsCache = leads;
+    if (interactions) centralInteractionsCache = interactions;
+    if (history) centralStageHistoryCache = history;
+    if (notes) centralNotesCache = notes;
+    if (tasks) centralTasksCache = tasks;
+    if (notifs) centralNotificationsCache = notifs;
+    if (audit) centralAuditLogsCache = audit;
+    if (reminders) centralReminderLogsCache = reminders;
+
+    notifyStoreListeners();
+  } catch (err) {
+    console.error('Error synchronizing all data from central database:', err);
+  }
+}
 
 // Sync users to backend
 export function syncUsersToServer(profiles: UserProfile[]) {
@@ -44,122 +235,44 @@ export function syncUsersToServer(profiles: UserProfile[]) {
   } catch {}
 }
 
-// Sync users from server into local state
+// Sync users from centralized database into memory
 export async function syncUsersFromServer(): Promise<UserProfile[]> {
-  if (typeof window === 'undefined') return getProfiles();
   try {
-    const res = await fetch('/api/users');
-    if (res.ok) {
-      const data = await res.json();
-      if (Array.isArray(data.users) && data.users.length > 0) {
-        const local = getProfiles();
-        const merged: UserProfile[] = [...data.users];
-        local.forEach(lp => {
-          if (!merged.some(u => u.id === lp.id || u.email.toLowerCase() === lp.email.toLowerCase())) {
-            merged.push(lp);
-          }
-        });
-        // Ensure Super Admin in merged array is up to date
-        const saIdx = merged.findIndex(u => 
-          u.id === 'user-super-admin-rakhi' || 
-          u.email.toLowerCase() === 'vempallirakhi20@gmail.com' ||
-          u.email.toLowerCase() === 'admin@azvasa.com' ||
-          (u.username && u.username.toLowerCase() === 'rakhi')
-        );
-        if (saIdx >= 0) {
-          merged[saIdx].email = 'vempallirakhi20@gmail.com';
-          merged[saIdx].password = 'Rakhi@1234';
-          merged[saIdx].username = merged[saIdx].username || 'rakhi';
-          merged[saIdx].role = 'super_admin';
-          merged[saIdx].status = 'active';
-        }
-        localStorage.setItem(STORAGE_KEYS.PROFILES, JSON.stringify(merged));
-        return merged;
-      }
+    const dbUsers = await fetchUsersFromDatabase();
+    if (Array.isArray(dbUsers) && dbUsers.length > 0) {
+      centralProfilesCache = dbUsers;
+      notifyStoreListeners();
+      return dbUsers;
     }
   } catch (err) {
-    console.error('Failed to sync users from server:', err);
+    console.error('Failed to sync users from centralized database:', err);
   }
-  return getProfiles();
+  return centralProfilesCache;
 }
 
-// Initialize clean data
+// Storage initialization (Centralized single source of truth in Firestore)
 export function initStorage(forceReset = false): void {
   if (typeof window === 'undefined') return;
 
-  const initialized = localStorage.getItem(STORAGE_KEYS.INITIALIZED);
-  if (!initialized || forceReset) {
-    localStorage.setItem(STORAGE_KEYS.PROFILES, JSON.stringify(INITIAL_PROFILES));
-    localStorage.setItem(STORAGE_KEYS.STAGES, JSON.stringify(INITIAL_STAGES));
-    localStorage.setItem(STORAGE_KEYS.LEADS, JSON.stringify(INITIAL_LEADS));
-    localStorage.setItem(STORAGE_KEYS.INTERACTIONS, JSON.stringify(INITIAL_INTERACTIONS));
-    localStorage.setItem(STORAGE_KEYS.STAGE_HISTORY, JSON.stringify(INITIAL_STAGE_HISTORY));
-    localStorage.setItem(STORAGE_KEYS.NOTIFICATIONS, JSON.stringify(INITIAL_NOTIFICATIONS));
-    localStorage.setItem(STORAGE_KEYS.AUDIT_LOGS, JSON.stringify(INITIAL_AUDIT_LOGS));
-    localStorage.setItem(STORAGE_KEYS.REMINDER_LOGS, JSON.stringify(INITIAL_REMINDER_LOGS));
-    
-    // Clear old notes & tasks
-    localStorage.removeItem('azvasa_notes');
-    localStorage.removeItem('azvasa_tasks');
-    localStorage.setItem('azvasa_notes_clean', JSON.stringify([]));
-    localStorage.setItem('azvasa_tasks_clean', JSON.stringify([]));
+  // Ensure no legacy local storage data pollutes the centralized app
+  try {
+    localStorage.removeItem('azvasa_profiles');
+    localStorage.removeItem('azvasa_leads');
+  } catch {}
 
-    // Ensure no automatic login on first boot or new clean session - user must explicitly log in
-    localStorage.removeItem(STORAGE_KEYS.CURRENT_USER);
-    sessionStorage.removeItem('azvasa_session_user');
-    localStorage.setItem(STORAGE_KEYS.INITIALIZED, 'true');
-
-    syncUsersToServer(INITIAL_PROFILES);
-  } else {
-    // Migration check: ensure Super Admin in existing local storage has updated credentials
-    try {
-      const existingRaw = localStorage.getItem(STORAGE_KEYS.PROFILES);
-      if (existingRaw) {
-        const parsed: UserProfile[] = JSON.parse(existingRaw);
-        let updated = false;
-        const saIdx = parsed.findIndex(p => 
-          p.id === 'user-super-admin-rakhi' || 
-          p.email.toLowerCase() === 'admin@azvasa.com' ||
-          p.email.toLowerCase() === 'vempallirakhi20@gmail.com' ||
-          (p.username && p.username.toLowerCase() === 'rakhi')
-        );
-        if (saIdx >= 0) {
-          if (parsed[saIdx].email !== 'vempallirakhi20@gmail.com' || parsed[saIdx].password !== 'Rakhi@1234') {
-            parsed[saIdx].email = 'vempallirakhi20@gmail.com';
-            parsed[saIdx].password = 'Rakhi@1234';
-            parsed[saIdx].username = parsed[saIdx].username || 'rakhi';
-            parsed[saIdx].role = 'super_admin';
-            parsed[saIdx].status = 'active';
-            updated = true;
-          }
-        } else {
-          parsed.unshift(INITIAL_PROFILES[0]);
-          updated = true;
-        }
-        if (updated) {
-          localStorage.setItem(STORAGE_KEYS.PROFILES, JSON.stringify(parsed));
-        }
-      }
-    } catch {
-      // Ignore migration parsing error
-    }
-  }
+  // Fetch central database records immediately
+  syncAllDataFromCentralDatabase().catch(() => {});
 }
 
-// User Profile & Authentication (Session-based: Requires login when site is opened)
+// Current User Session (Session-only: Opening site requires login, refreshing keeps session)
 export function getCurrentUser(): UserProfile | null {
   if (typeof window === 'undefined') return null;
-  initStorage();
-  
-  // Use sessionStorage so opening the site requires login, while refreshing maintains active session
   const sessionRaw = sessionStorage.getItem('azvasa_session_user');
   if (sessionRaw) {
     try {
       const parsed = JSON.parse(sessionRaw);
       if (parsed && parsed.id) return parsed;
-    } catch {
-      // fall through
-    }
+    } catch {}
   }
   return null;
 }
@@ -168,40 +281,29 @@ export function setCurrentUser(user: UserProfile | null): void {
   if (typeof window === 'undefined') return;
   if (user) {
     sessionStorage.setItem('azvasa_session_user', JSON.stringify(user));
-    localStorage.setItem(STORAGE_KEYS.CURRENT_USER, JSON.stringify(user));
   } else {
     sessionStorage.removeItem('azvasa_session_user');
-    localStorage.removeItem(STORAGE_KEYS.CURRENT_USER);
   }
 }
 
+// ============================================================================
+// 1. PROFILES / USERS (Centralized Database)
+// ============================================================================
+
 export function getProfiles(): UserProfile[] {
-  if (typeof window === 'undefined') return INITIAL_PROFILES;
-  initStorage();
-  const raw = localStorage.getItem(STORAGE_KEYS.PROFILES);
-  if (!raw) return INITIAL_PROFILES;
-  try {
-    const parsed: UserProfile[] = JSON.parse(raw);
-    // Ensure at least one super admin exists
-    const hasSuperAdmin = parsed.some(p => p.role === 'super_admin');
-    if (!hasSuperAdmin) {
-      parsed.unshift(INITIAL_PROFILES[0]);
-      saveProfiles(parsed);
-    }
-    return parsed;
-  } catch {
-    return INITIAL_PROFILES;
-  }
+  return centralProfilesCache;
 }
 
 export function saveProfiles(profiles: UserProfile[]): void {
-  if (typeof window === 'undefined') return;
-  localStorage.setItem(STORAGE_KEYS.PROFILES, JSON.stringify(profiles));
+  centralProfilesCache = profiles;
+  profiles.forEach(p => {
+    saveUserToDatabase(p).catch(() => {});
+  });
   syncUsersToServer(profiles);
+  notifyStoreListeners();
 }
 
 export function addProfile(profile: Omit<UserProfile, 'id' | 'created_at'>, actor: UserProfile): UserProfile {
-  const profiles = getProfiles();
   const username = (profile.username || '').trim() || profile.email.split('@')[0];
   const password = (profile.password || '').trim() || 'Password@123';
   const newProfile: UserProfile = {
@@ -211,16 +313,23 @@ export function addProfile(profile: Omit<UserProfile, 'id' | 'created_at'>, acto
     id: `user-${profile.role}-${Date.now()}`,
     created_at: new Date().toISOString()
   };
-  profiles.push(newProfile);
-  saveProfiles(profiles);
 
-  // Directly push to server persistent storage
+  // Direct persistence to centralized database
+  saveUserToDatabase(newProfile).catch(err => {
+    console.error('Error saving user to central Firestore database:', err);
+  });
+
+  // Update memory cache immediately
+  centralProfilesCache = [...centralProfilesCache.filter(u => u.id !== newProfile.id), newProfile];
+  notifyStoreListeners();
+
+  // Push to server API
   if (typeof window !== 'undefined') {
     fetch('/api/users', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(newProfile)
-    }).catch(err => console.error('Failed pushing user to server:', err));
+    }).catch(() => {});
   }
 
   addAuditLog({
@@ -238,25 +347,29 @@ export function addProfile(profile: Omit<UserProfile, 'id' | 'created_at'>, acto
 }
 
 export function updateProfile(id: string, updates: Partial<UserProfile>, actor: UserProfile): UserProfile | null {
-  const profiles = getProfiles();
-  const index = profiles.findIndex(p => p.id === id);
+  const index = centralProfilesCache.findIndex(p => p.id === id);
   if (index === -1) return null;
 
-  const oldProfile = profiles[index];
+  const oldProfile = centralProfilesCache[index];
   const updated = { ...oldProfile, ...updates, updated_at: new Date().toISOString() };
-  profiles[index] = updated;
-  saveProfiles(profiles);
+  centralProfilesCache[index] = updated;
+  notifyStoreListeners();
 
-  // Directly update on server persistent storage
+  // Persist directly to central Firestore database
+  saveUserToDatabase(updated).catch(err => {
+    console.error('Error updating user in central Firestore database:', err);
+  });
+
+  // Update on server API
   if (typeof window !== 'undefined') {
     fetch(`/api/users/${encodeURIComponent(id)}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(updates)
-    }).catch(err => console.error('Failed updating user on server:', err));
+    }).catch(() => {});
   }
 
-  // If status changed
+  // Audit log
   if (updates.status && updates.status !== oldProfile.status) {
     addAuditLog({
       user_id: actor.id,
@@ -282,7 +395,7 @@ export function updateProfile(id: string, updates: Partial<UserProfile>, actor: 
     });
   }
 
-  // Update current user in session if it's the same user
+  // Update current session if matching
   const current = getCurrentUser();
   if (current && current.id === id) {
     setCurrentUser(updated);
@@ -292,23 +405,27 @@ export function updateProfile(id: string, updates: Partial<UserProfile>, actor: 
 }
 
 export function deleteProfile(id: string, actor: UserProfile): { success: boolean; error?: string } {
-  const profiles = getProfiles();
-  const target = profiles.find(p => p.id === id);
+  const target = centralProfilesCache.find(p => p.id === id);
   if (!target) return { success: false, error: 'User not found' };
 
-  const superAdmins = profiles.filter(p => p.role === 'super_admin' && p.status === 'active');
+  const superAdmins = centralProfilesCache.filter(p => p.role === 'super_admin' && p.status === 'active');
   if (target.role === 'super_admin' && superAdmins.length <= 1) {
     return { success: false, error: 'Cannot delete the only active Super Admin in the system.' };
   }
 
-  const filtered = profiles.filter(p => p.id !== id);
-  saveProfiles(filtered);
+  centralProfilesCache = centralProfilesCache.filter(p => p.id !== id);
+  notifyStoreListeners();
 
-  // Directly delete from server persistent storage
+  // Delete from central Firestore database
+  deleteUserFromDatabase(id).catch(err => {
+    console.error('Error deleting user from central Firestore database:', err);
+  });
+
+  // Delete from server API
   if (typeof window !== 'undefined') {
     fetch(`/api/users/${encodeURIComponent(id)}`, {
       method: 'DELETE'
-    }).catch(err => console.error('Failed deleting user from server:', err));
+    }).catch(() => {});
   }
 
   addAuditLog({
@@ -325,25 +442,23 @@ export function deleteProfile(id: string, actor: UserProfile): { success: boolea
   return { success: true };
 }
 
-// Client-side authentication helpers
 export function authenticateWithCredentials(usernameOrEmail: string, passwordAttempt: string): { success: boolean; user?: UserProfile; error?: string } {
   const profiles = getProfiles();
   const query = usernameOrEmail.trim().toLowerCase();
   const cleanPassword = passwordAttempt.trim();
 
-  // Direct guarantee for primary Super Admin credentials
   const isSuperAdminQuery = query === 'vempallirakhi20@gmail.com' || query === 'rakhi' || query === 'admin';
   if (isSuperAdminQuery && cleanPassword === 'Rakhi@1234') {
     let superAdmin = profiles.find(p => p.role === 'super_admin');
     if (!superAdmin) {
-      superAdmin = { ...INITIAL_PROFILES[0] };
+      superAdmin = { ...DEFAULT_SUPER_ADMIN };
       profiles.unshift(superAdmin);
     }
     superAdmin.email = 'vempallirakhi20@gmail.com';
     superAdmin.username = 'rakhi';
     superAdmin.password = 'Rakhi@1234';
     superAdmin.status = 'active';
-    saveProfiles(profiles);
+    saveUserToDatabase(superAdmin).catch(() => {});
     setCurrentUser(superAdmin);
     return { success: true, user: superAdmin };
   }
@@ -354,7 +469,7 @@ export function authenticateWithCredentials(usernameOrEmail: string, passwordAtt
   );
 
   if (!user) {
-    return { success: false, error: 'No account found with this username or company email.' };
+    return { success: false, error: 'No account found with this username or company email in the database.' };
   }
 
   if (user.status !== 'active') {
@@ -377,17 +492,31 @@ export function authenticateWithGoogleUser(email: string): { success: boolean; u
   };
 }
 
-// Pipeline Stages
+// ============================================================================
+// 2. PIPELINE STAGES (Centralized Database)
+// ============================================================================
+
 export function getStages(): PipelineStage[] {
-  if (typeof window === 'undefined') return INITIAL_STAGES;
-  const raw = localStorage.getItem(STORAGE_KEYS.STAGES);
-  const stages: PipelineStage[] = raw ? JSON.parse(raw) : INITIAL_STAGES;
-  return stages.sort((a, b) => a.display_order - b.display_order);
+  return [...centralStagesCache].sort((a, b) => a.display_order - b.display_order);
 }
 
 export function saveStages(stages: PipelineStage[], actor?: UserProfile): void {
-  if (typeof window === 'undefined') return;
-  localStorage.setItem(STORAGE_KEYS.STAGES, JSON.stringify(stages));
+  centralStagesCache = stages;
+  notifyStoreListeners();
+
+  // Persist each stage to central Firestore database
+  stages.forEach(s => {
+    saveStageToDatabase(s).catch(err => console.error('Error saving stage to Firestore:', err));
+  });
+
+  // Also sync to server
+  if (typeof window !== 'undefined') {
+    fetch('/api/stages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ stages })
+    }).catch(() => {});
+  }
 
   if (actor) {
     addAuditLog({
@@ -403,16 +532,20 @@ export function saveStages(stages: PipelineStage[], actor?: UserProfile): void {
   }
 }
 
-// Leads
+// ============================================================================
+// 3. LEADS (Centralized Database)
+// ============================================================================
+
 export function getLeads(): Lead[] {
-  if (typeof window === 'undefined') return INITIAL_LEADS;
-  const raw = localStorage.getItem(STORAGE_KEYS.LEADS);
-  return raw ? JSON.parse(raw) : INITIAL_LEADS;
+  return [...centralLeadsCache].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
 }
 
 export function saveLeads(leads: Lead[]): void {
-  if (typeof window === 'undefined') return;
-  localStorage.setItem(STORAGE_KEYS.LEADS, JSON.stringify(leads));
+  centralLeadsCache = leads;
+  notifyStoreListeners();
+  leads.forEach(l => {
+    saveLeadToDatabase(l).catch(err => console.error('Error saving lead to Firestore:', err));
+  });
 }
 
 export type ActorType = UserProfile | string | { id: string; full_name: string; role?: string };
@@ -430,7 +563,6 @@ function resolveActor(actor: ActorType): { id: string; full_name: string; role: 
 
 export function addLead(leadData: Omit<Lead, 'id' | 'created_at' | 'updated_at'>, actor: ActorType): Lead {
   const actorObj = resolveActor(actor);
-  const leads = getLeads();
   const stages = getStages();
   const profiles = getProfiles();
 
@@ -446,9 +578,25 @@ export function addLead(leadData: Omit<Lead, 'id' | 'created_at' | 'updated_at'>
     updated_at: new Date().toISOString()
   };
 
-  leads.unshift(newLead);
-  saveLeads(leads);
+  // Immediate cache update
+  centralLeadsCache = [newLead, ...centralLeadsCache];
+  notifyStoreListeners();
 
+  // 1. Central Firestore Database Write (Available to all devices instantly)
+  saveLeadToDatabase(newLead).catch(err => {
+    console.error('Error saving lead to central database:', err);
+  });
+
+  // 2. Server API fallback
+  if (typeof window !== 'undefined') {
+    fetch('/api/leads', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(newLead)
+    }).catch(() => {});
+  }
+
+  // Audit Log
   addAuditLog({
     user_id: actorObj.id,
     user_name: actorObj.full_name,
@@ -477,11 +625,10 @@ export function addLead(leadData: Omit<Lead, 'id' | 'created_at' | 'updated_at'>
 
 export function updateLead(id: string, updates: Partial<Lead>, actor: ActorType): Lead | null {
   const actorObj = resolveActor(actor);
-  const leads = getLeads();
-  const index = leads.findIndex(l => l.id === id);
+  const index = centralLeadsCache.findIndex(l => l.id === id);
   if (index === -1) return null;
 
-  const oldLead = leads[index];
+  const oldLead = centralLeadsCache[index];
   const stages = getStages();
   const profiles = getProfiles();
 
@@ -505,10 +652,24 @@ export function updateLead(id: string, updates: Partial<Lead>, actor: ActorType)
     updated_at: new Date().toISOString()
   };
 
-  leads[index] = updated;
-  saveLeads(leads);
+  centralLeadsCache[index] = updated;
+  notifyStoreListeners();
 
-  // Check if rep was changed
+  // 1. Central Firestore Database Write
+  saveLeadToDatabase(updated).catch(err => {
+    console.error('Error updating lead in central database:', err);
+  });
+
+  // 2. Server API
+  if (typeof window !== 'undefined') {
+    fetch(`/api/leads/${encodeURIComponent(id)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(updated)
+    }).catch(() => {});
+  }
+
+  // Audit and notifications
   if (updates.assigned_rep_id && updates.assigned_rep_id !== oldLead.assigned_rep_id) {
     addAuditLog({
       user_id: actorObj.id,
@@ -533,7 +694,6 @@ export function updateLead(id: string, updates: Partial<Lead>, actor: ActorType)
       });
     }
   } else if (updates.current_stage_id && updates.current_stage_id !== oldLead.current_stage_id) {
-    // Stage changed
     addStageHistory({
       lead_id: id,
       from_stage_name: oldLead.current_stage_name || 'Lead',
@@ -566,7 +726,6 @@ export function updateLead(id: string, updates: Partial<Lead>, actor: ActorType)
       });
     }
   } else {
-    // General lead edit
     addAuditLog({
       user_id: actorObj.id,
       user_name: actorObj.full_name,
@@ -587,13 +746,11 @@ export function deleteLead(id: string, actor: UserProfile): { success: boolean; 
     return { success: false, error: 'Only Super Admins are authorized to delete school records.' };
   }
 
-  const leads = getLeads();
-  const target = leads.find(l => l.id === id);
+  const target = centralLeadsCache.find(l => l.id === id);
   if (!target) {
     return { success: false, error: 'School/Lead not found.' };
   }
 
-  // Ensure stage is "Not Interested"
   const isNotInterested = 
     target.current_stage_name?.trim().toLowerCase() === 'not interested' ||
     target.current_stage_id === 'stage-lost' ||
@@ -606,26 +763,33 @@ export function deleteLead(id: string, actor: UserProfile): { success: boolean; 
     };
   }
 
-  // Remove lead from storage
-  const updatedLeads = leads.filter(l => l.id !== id);
-  saveLeads(updatedLeads);
+  // Remove lead from cache
+  centralLeadsCache = centralLeadsCache.filter(l => l.id !== id);
+  notifyStoreListeners();
 
-  // Clean up interactions
-  const allInteractions = getInteractions().filter(i => i.lead_id !== id);
-  saveInteractions(allInteractions);
+  // 1. Delete from central Firestore database
+  deleteLeadFromDatabase(id).catch(err => {
+    console.error('Error deleting lead from central database:', err);
+  });
 
-  // Clean up stage history
-  const allHistory = getStageHistory().filter(h => h.lead_id !== id);
+  // 2. Delete on server API
   if (typeof window !== 'undefined') {
-    localStorage.setItem(STORAGE_KEYS.STAGE_HISTORY, JSON.stringify(allHistory));
+    fetch(`/api/leads/${encodeURIComponent(id)}`, { method: 'DELETE' }).catch(() => {});
   }
 
-  // Clean up notes and tasks
-  const allNotes = getNotes().filter(n => n.lead_id !== id);
-  saveNotes(allNotes);
+  // Clean up interactions from cache and Firestore
+  const toDeleteInteractions = centralInteractionsCache.filter(i => i.lead_id === id);
+  centralInteractionsCache = centralInteractionsCache.filter(i => i.lead_id !== id);
+  toDeleteInteractions.forEach(i => deleteInteractionFromDatabase(i.id).catch(() => {}));
 
-  const allTasks = getTasks().filter(t => t.lead_id !== id);
-  saveTasks(allTasks);
+  // Clean up notes and tasks
+  const toDeleteNotes = centralNotesCache.filter(n => n.lead_id === id);
+  centralNotesCache = centralNotesCache.filter(n => n.lead_id !== id);
+  toDeleteNotes.forEach(n => deleteNoteFromDatabase(n.id).catch(() => {}));
+
+  const toDeleteTasks = centralTasksCache.filter(t => t.lead_id !== id);
+  centralTasksCache = centralTasksCache.filter(t => t.lead_id !== id);
+  toDeleteTasks.forEach(t => deleteTaskFromDatabase(t.id).catch(() => {}));
 
   // Record Audit Log
   addAuditLog({
@@ -639,7 +803,6 @@ export function deleteLead(id: string, actor: UserProfile): { success: boolean; 
     new_value: 'Permanently deleted after Not Interested stage'
   });
 
-  // Notify assigned rep if different from actor
   if (target.assigned_rep_id && target.assigned_rep_id !== actor.id) {
     addNotification({
       user_id: target.assigned_rep_id,
@@ -653,24 +816,24 @@ export function deleteLead(id: string, actor: UserProfile): { success: boolean; 
   return { success: true };
 }
 
-// Interactions (ONE LEAD -> MANY INTERACTIONS, never overwritten)
-export function getInteractions(leadId?: string): Interaction[] {
-  if (typeof window === 'undefined') return INITIAL_INTERACTIONS;
-  const raw = localStorage.getItem(STORAGE_KEYS.INTERACTIONS);
-  const interactions: Interaction[] = raw ? JSON.parse(raw) : INITIAL_INTERACTIONS;
-  
-  if (leadId) {
-    return interactions
-      .filter(i => i.lead_id === leadId)
-      .sort((a, b) => new Date(b.interaction_date).getTime() - new Date(a.interaction_date).getTime());
-  }
+// ============================================================================
+// 4. INTERACTIONS (Centralized Database)
+// ============================================================================
 
-  return interactions.sort((a, b) => new Date(b.interaction_date).getTime() - new Date(a.interaction_date).getTime());
+export function getInteractions(leadId?: string): Interaction[] {
+  const interactions = [...centralInteractionsCache].sort(
+    (a, b) => new Date(b.interaction_date).getTime() - new Date(a.interaction_date).getTime()
+  );
+  if (leadId) {
+    return interactions.filter(i => i.lead_id === leadId);
+  }
+  return interactions;
 }
 
 export function saveInteractions(interactions: Interaction[]): void {
-  if (typeof window === 'undefined') return;
-  localStorage.setItem(STORAGE_KEYS.INTERACTIONS, JSON.stringify(interactions));
+  centralInteractionsCache = interactions;
+  notifyStoreListeners();
+  interactions.forEach(i => saveInteractionToDatabase(i).catch(() => {}));
 }
 
 export function addInteraction(
@@ -679,22 +842,32 @@ export function addInteraction(
   autoUpdateLead: boolean = true
 ): Interaction {
   const actorObj = resolveActor(actor || { id: 'usr-current', full_name: interactionData.created_by_name || 'Sales Rep', role: 'sales_rep' });
-  const interactions = getInteractions();
   const newInteraction: Interaction = {
     ...interactionData,
     id: `inter-${Date.now()}`,
     created_at: new Date().toISOString()
   };
 
-  interactions.unshift(newInteraction);
+  centralInteractionsCache = [newInteraction, ...centralInteractionsCache];
+  notifyStoreListeners();
+
+  // 1. Save to central Firestore database
+  saveInteractionToDatabase(newInteraction).catch(err => {
+    console.error('Error saving interaction to central database:', err);
+  });
+
+  // 2. Push to server
   if (typeof window !== 'undefined') {
-    localStorage.setItem(STORAGE_KEYS.INTERACTIONS, JSON.stringify(interactions));
+    fetch('/api/interactions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(newInteraction)
+    }).catch(() => {});
   }
 
-  // Update lead's last interaction date, next action date, and next action remarks
+  // Update lead's last interaction date, next action date, and remarks
   if (autoUpdateLead) {
-    const leads = getLeads();
-    const lead = leads.find(l => l.id === interactionData.lead_id);
+    const lead = centralLeadsCache.find(l => l.id === interactionData.lead_id);
     if (lead) {
       updateLead(
         lead.id,
@@ -722,106 +895,291 @@ export function addInteraction(
   return newInteraction;
 }
 
-// Stage History
+// ============================================================================
+// 5. STAGE HISTORY (Centralized Database)
+// ============================================================================
+
 export function getStageHistory(leadId?: string): StageHistory[] {
-  if (typeof window === 'undefined') return INITIAL_STAGE_HISTORY;
-  const raw = localStorage.getItem(STORAGE_KEYS.STAGE_HISTORY);
-  const history: StageHistory[] = raw ? JSON.parse(raw) : INITIAL_STAGE_HISTORY;
-
+  const history = [...centralStageHistoryCache].sort(
+    (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+  );
   if (leadId) {
-    return history
-      .filter(h => h.lead_id === leadId)
-      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+    return history.filter(h => h.lead_id === leadId);
   }
-
-  return history.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+  return history;
 }
 
 export function addStageHistory(item: Omit<StageHistory, 'id' | 'created_at'>): StageHistory {
-  const history = getStageHistory();
   const newEntry: StageHistory = {
     ...item,
     id: `hist-${Date.now()}`,
     created_at: new Date().toISOString()
   };
-  history.unshift(newEntry);
-  if (typeof window !== 'undefined') {
-    localStorage.setItem(STORAGE_KEYS.STAGE_HISTORY, JSON.stringify(history));
-  }
+
+  centralStageHistoryCache = [newEntry, ...centralStageHistoryCache];
+  notifyStoreListeners();
+
+  saveStageHistoryToDatabase(newEntry).catch(err => {
+    console.error('Error saving stage history to central database:', err);
+  });
+
   return newEntry;
 }
 
-// Notifications
-export function getNotifications(userId?: string): AppNotification[] {
-  if (typeof window === 'undefined') return INITIAL_NOTIFICATIONS;
-  const raw = localStorage.getItem(STORAGE_KEYS.NOTIFICATIONS);
-  const list: AppNotification[] = raw ? JSON.parse(raw) : INITIAL_NOTIFICATIONS;
+// ============================================================================
+// 6. INTERNAL NOTES (Centralized Database)
+// ============================================================================
 
+export function getNotes(): InternalNote[] {
+  return [...centralNotesCache].sort(
+    (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+  );
+}
+
+export function saveNotes(notes: InternalNote[]): void {
+  centralNotesCache = notes;
+  notifyStoreListeners();
+  notes.forEach(n => saveNoteToDatabase(n).catch(() => {}));
+}
+
+export function addNote(leadId: string, content: string, actor?: ActorType): InternalNote {
+  const actorObj = resolveActor(actor || { id: 'usr-current', full_name: 'User', role: 'sales_rep' });
+  const newNote: InternalNote = {
+    id: `note-${Date.now()}`,
+    lead_id: leadId,
+    created_by_id: actorObj.id,
+    created_by_name: actorObj.full_name,
+    content,
+    created_at: new Date().toISOString()
+  };
+
+  centralNotesCache = [newNote, ...centralNotesCache];
+  notifyStoreListeners();
+
+  saveNoteToDatabase(newNote).catch(err => {
+    console.error('Error saving note to central database:', err);
+  });
+
+  if (typeof window !== 'undefined') {
+    fetch('/api/notes', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(newNote)
+    }).catch(() => {});
+  }
+
+  return newNote;
+}
+
+export function deleteNote(noteId: string): void {
+  centralNotesCache = centralNotesCache.filter(n => n.id !== noteId);
+  notifyStoreListeners();
+
+  deleteNoteFromDatabase(noteId).catch(err => {
+    console.error('Error deleting note from central database:', err);
+  });
+
+  if (typeof window !== 'undefined') {
+    fetch(`/api/notes/${encodeURIComponent(noteId)}`, { method: 'DELETE' }).catch(() => {});
+  }
+}
+
+// ============================================================================
+// 7. FOLLOW-UP TASKS (Centralized Database)
+// ============================================================================
+
+export function getTasks(): FollowupTask[] {
+  return [...centralTasksCache].sort(
+    (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+  );
+}
+
+export function saveTasks(tasks: FollowupTask[]): void {
+  centralTasksCache = tasks;
+  notifyStoreListeners();
+  tasks.forEach(t => saveTaskToDatabase(t).catch(() => {}));
+}
+
+export function addTask(
+  leadId: string, 
+  title: string, 
+  dueDate: string, 
+  priority: 'Low' | 'Medium' | 'High',
+  actor?: ActorType
+): FollowupTask {
+  const actorObj = resolveActor(actor || { id: 'usr-current', full_name: 'User', role: 'sales_rep' });
+  const newTask: FollowupTask = {
+    id: `task-${Date.now()}`,
+    lead_id: leadId,
+    assigned_to_id: actorObj.id,
+    assigned_to_name: actorObj.full_name,
+    title,
+    due_date: dueDate,
+    status: 'Pending',
+    priority,
+    created_at: new Date().toISOString()
+  };
+
+  centralTasksCache = [...centralTasksCache, newTask];
+  notifyStoreListeners();
+
+  saveTaskToDatabase(newTask).catch(err => {
+    console.error('Error saving task to central database:', err);
+  });
+
+  if (typeof window !== 'undefined') {
+    fetch('/api/tasks', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(newTask)
+    }).catch(() => {});
+  }
+
+  return newTask;
+}
+
+export function updateTaskStatus(taskId: string, status: 'Pending' | 'Completed'): void {
+  const index = centralTasksCache.findIndex(t => t.id === taskId);
+  if (index === -1) return;
+
+  const updated: FollowupTask = {
+    ...centralTasksCache[index],
+    status
+  };
+  centralTasksCache[index] = updated;
+  notifyStoreListeners();
+
+  saveTaskToDatabase(updated).catch(err => {
+    console.error('Error updating task in central database:', err);
+  });
+
+  if (typeof window !== 'undefined') {
+    fetch(`/api/tasks/${encodeURIComponent(taskId)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(updated)
+    }).catch(() => {});
+  }
+}
+
+export function deleteTask(taskId: string): void {
+  centralTasksCache = centralTasksCache.filter(t => t.id !== taskId);
+  notifyStoreListeners();
+
+  deleteTaskFromDatabase(taskId).catch(err => {
+    console.error('Error deleting task from central database:', err);
+  });
+
+  if (typeof window !== 'undefined') {
+    fetch(`/api/tasks/${encodeURIComponent(taskId)}`, { method: 'DELETE' }).catch(() => {});
+  }
+}
+
+// ============================================================================
+// 8. NOTIFICATIONS (Centralized Database)
+// ============================================================================
+
+export function getNotifications(userId?: string): AppNotification[] {
+  const list = [...centralNotificationsCache].sort(
+    (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+  );
   if (userId) {
     return list.filter(n => n.user_id === userId || n.user_id === 'all');
   }
-
   return list;
 }
 
+export function saveNotifications(notifications: AppNotification[]): void {
+  centralNotificationsCache = notifications;
+  notifyStoreListeners();
+  notifications.forEach(n => saveNotificationToDatabase(n).catch(() => {}));
+}
+
 export function addNotification(notif: Omit<AppNotification, 'id' | 'read' | 'created_at'>): AppNotification {
-  const list = getNotifications();
   const item: AppNotification = {
     ...notif,
     id: `notif-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
     read: false,
     created_at: new Date().toISOString()
   };
-  list.unshift(item);
+
+  centralNotificationsCache = [item, ...centralNotificationsCache];
+  notifyStoreListeners();
+
+  saveNotificationToDatabase(item).catch(err => {
+    console.error('Error saving notification to central database:', err);
+  });
+
   if (typeof window !== 'undefined') {
-    localStorage.setItem(STORAGE_KEYS.NOTIFICATIONS, JSON.stringify(list));
+    fetch('/api/notifications', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(item)
+    }).catch(() => {});
   }
+
   return item;
 }
 
 export function markNotificationRead(id: string): void {
-  const list = getNotifications();
-  const index = list.findIndex(n => n.id === id);
+  const index = centralNotificationsCache.findIndex(n => n.id === id);
   if (index !== -1) {
-    list[index].read = true;
+    const updated = { ...centralNotificationsCache[index], read: true };
+    centralNotificationsCache[index] = updated;
+    notifyStoreListeners();
+    saveNotificationToDatabase(updated).catch(() => {});
+
     if (typeof window !== 'undefined') {
-      localStorage.setItem(STORAGE_KEYS.NOTIFICATIONS, JSON.stringify(list));
+      fetch(`/api/notifications/${encodeURIComponent(id)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ read: true })
+      }).catch(() => {});
     }
   }
 }
 
 export function markAllNotificationsRead(userId?: string): void {
-  const list = getNotifications();
-  list.forEach(n => {
+  centralNotificationsCache = centralNotificationsCache.map(n => {
     if (!userId || n.user_id === userId || n.user_id === 'all') {
-      n.read = true;
+      const updated = { ...n, read: true };
+      saveNotificationToDatabase(updated).catch(() => {});
+      return updated;
     }
+    return n;
   });
-  if (typeof window !== 'undefined') {
-    localStorage.setItem(STORAGE_KEYS.NOTIFICATIONS, JSON.stringify(list));
-  }
+  notifyStoreListeners();
 }
 
 export function deleteNotification(id: string): void {
-  const list = getNotifications();
-  const filtered = list.filter(n => n.id !== id);
-  saveNotifications(filtered);
+  centralNotificationsCache = centralNotificationsCache.filter(n => n.id !== id);
+  notifyStoreListeners();
+
+  deleteNotificationFromDatabase(id).catch(err => {
+    console.error('Error deleting notification from central database:', err);
+  });
+
+  if (typeof window !== 'undefined') {
+    fetch(`/api/notifications/${encodeURIComponent(id)}`, { method: 'DELETE' }).catch(() => {});
+  }
 }
 
 export function clearReadNotifications(userId?: string): void {
-  const list = getNotifications();
-  const filtered = list.filter(n => {
+  const toDelete: AppNotification[] = [];
+  centralNotificationsCache = centralNotificationsCache.filter(n => {
     if (n.read) {
       if (!userId || n.user_id === userId || n.user_id === 'all') {
+        toDelete.push(n);
         return false;
       }
     }
     return true;
   });
-  saveNotifications(filtered);
+  notifyStoreListeners();
+
+  toDelete.forEach(n => deleteNotificationFromDatabase(n.id).catch(() => {}));
 }
 
-// Scans active leads and creates real-time follow-up and overdue notifications
 export function syncFollowupNotifications(currentDateStr: string = '2026-09-19'): AppNotification[] {
   const leads = getLeads();
   const existing = getNotifications();
@@ -829,14 +1187,12 @@ export function syncFollowupNotifications(currentDateStr: string = '2026-09-19')
 
   leads.forEach(lead => {
     if (!lead.next_action_date || !lead.assigned_rep_id) return;
-    // Skip leads that are Not Interested or already signed
     const isClosed = lead.current_stage_name === 'Not Interested' || lead.current_stage_name === 'Agreement Stage';
     if (isClosed) return;
 
     const leadDate = lead.next_action_date;
 
     if (leadDate === currentDateStr) {
-      // Check if a follow-up due today notification already exists for today
       const alreadyHasToday = existing.some(
         n => n.lead_id === lead.id && n.type === 'followup_today' && n.created_at.startsWith(currentDateStr)
       );
@@ -852,7 +1208,6 @@ export function syncFollowupNotifications(currentDateStr: string = '2026-09-19')
         newNotifs.push(notif);
       }
     } else if (leadDate < currentDateStr) {
-      // Overdue alert
       const alreadyHasOverdue = existing.some(
         n => n.lead_id === lead.id && n.type === 'followup_overdue' && n.created_at.startsWith(currentDateStr)
       );
@@ -873,58 +1228,94 @@ export function syncFollowupNotifications(currentDateStr: string = '2026-09-19')
   return newNotifs;
 }
 
-// Audit Logs
+// ============================================================================
+// 9. AUDIT LOGS (Centralized Database)
+// ============================================================================
+
 export function getAuditLogs(): AuditLog[] {
-  if (typeof window === 'undefined') return INITIAL_AUDIT_LOGS;
-  const raw = localStorage.getItem(STORAGE_KEYS.AUDIT_LOGS);
-  const list: AuditLog[] = raw ? JSON.parse(raw) : INITIAL_AUDIT_LOGS;
-  return list.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+  return [...centralAuditLogsCache].sort(
+    (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+  );
+}
+
+export function saveAuditLogs(logs: AuditLog[]): void {
+  centralAuditLogsCache = logs;
+  notifyStoreListeners();
+  logs.forEach(l => saveAuditLogToDatabase(l).catch(() => {}));
 }
 
 export function addAuditLog(log: Omit<AuditLog, 'id' | 'timestamp'>): AuditLog {
-  const list = getAuditLogs();
   const item: AuditLog = {
     ...log,
     id: `audit-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
     timestamp: new Date().toISOString()
   };
-  list.unshift(item);
+
+  centralAuditLogsCache = [item, ...centralAuditLogsCache];
+  notifyStoreListeners();
+
+  saveAuditLogToDatabase(item).catch(err => {
+    console.error('Error saving audit log to central database:', err);
+  });
+
   if (typeof window !== 'undefined') {
-    localStorage.setItem(STORAGE_KEYS.AUDIT_LOGS, JSON.stringify(list));
+    fetch('/api/audit-logs', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(item)
+    }).catch(() => {});
   }
+
   return item;
 }
 
-// Reminder Logs (Automated Email Reminders)
+// ============================================================================
+// 10. REMINDER LOGS (Centralized Database)
+// ============================================================================
+
 export function getReminderLogs(): ReminderLog[] {
-  if (typeof window === 'undefined') return INITIAL_REMINDER_LOGS;
-  const raw = localStorage.getItem(STORAGE_KEYS.REMINDER_LOGS);
-  const list: ReminderLog[] = raw ? JSON.parse(raw) : INITIAL_REMINDER_LOGS;
-  return list.sort((a, b) => new Date(b.sent_at).getTime() - new Date(a.sent_at).getTime());
+  return [...centralReminderLogsCache].sort(
+    (a, b) => new Date(b.sent_at).getTime() - new Date(a.sent_at).getTime()
+  );
+}
+
+export function saveReminderLogs(logs: ReminderLog[]): void {
+  centralReminderLogsCache = logs;
+  notifyStoreListeners();
+  logs.forEach(l => saveReminderLogToDatabase(l).catch(() => {}));
 }
 
 export function addReminderLog(log: Omit<ReminderLog, 'id' | 'sent_at'>): ReminderLog {
-  const list = getReminderLogs();
   const item: ReminderLog = {
     ...log,
     id: `rem-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
     sent_at: new Date().toISOString()
   };
-  list.unshift(item);
+
+  centralReminderLogsCache = [item, ...centralReminderLogsCache];
+  notifyStoreListeners();
+
+  saveReminderLogToDatabase(item).catch(err => {
+    console.error('Error saving reminder log to central database:', err);
+  });
+
   if (typeof window !== 'undefined') {
-    localStorage.setItem(STORAGE_KEYS.REMINDER_LOGS, JSON.stringify(list));
+    fetch('/api/reminder-logs', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(item)
+    }).catch(() => {});
   }
+
   return item;
 }
 
-// Automated Follow-up Reminder Job (Runs 1 day before Next Action Date)
 export function runAutomatedFollowupReminders(targetDateStr: string = '2026-09-19'): ReminderLog[] {
   const leads = getLeads();
   const profiles = getProfiles();
   const existingReminders = getReminderLogs();
   const newDispatches: ReminderLog[] = [];
 
-  // Parse target date and find leads whose next_action_date is tomorrow (targetDate + 1 day)
   const target = new Date(targetDateStr);
   const tomorrow = new Date(target);
   tomorrow.setDate(tomorrow.getDate() + 1);
@@ -933,9 +1324,7 @@ export function runAutomatedFollowupReminders(targetDateStr: string = '2026-09-1
   leads.forEach(lead => {
     if (!lead.next_action_date || !lead.assigned_rep_id) return;
     
-    // If next action is tomorrow
     if (lead.next_action_date === tomorrowStr) {
-      // Check if already dispatched for this date
       const alreadySent = existingReminders.some(
         r => r.lead_id === lead.id && r.next_action_date === tomorrowStr
       );
@@ -959,7 +1348,6 @@ export function runAutomatedFollowupReminders(targetDateStr: string = '2026-09-1
             status: 'sent'
           });
 
-          // Also trigger notification
           addNotification({
             user_id: rep.id,
             type: 'upcoming',
@@ -978,7 +1366,15 @@ export function runAutomatedFollowupReminders(targetDateStr: string = '2026-09-1
   return newDispatches;
 }
 
-// CSV Export Generator
+export function sendAutomatedReminders(): { sent: number } {
+  const sentLogs = runAutomatedFollowupReminders('2026-09-19');
+  return { sent: sentLogs.length };
+}
+
+// ============================================================================
+// 11. CSV EXPORT HELPER
+// ============================================================================
+
 export function exportLeadsToCSV(leads: Lead[]): void {
   const headers = [
     'School Name',
@@ -1022,58 +1418,3 @@ export function exportLeadsToCSV(leads: Lead[]): void {
   link.click();
   document.body.removeChild(link);
 }
-
-// Additional Storage Helpers
-export function saveAuditLogs(logs: AuditLog[]): void {
-  if (typeof window === 'undefined') return;
-  localStorage.setItem(STORAGE_KEYS.AUDIT_LOGS, JSON.stringify(logs));
-}
-
-export function saveReminderLogs(logs: ReminderLog[]): void {
-  if (typeof window === 'undefined') return;
-  localStorage.setItem(STORAGE_KEYS.REMINDER_LOGS, JSON.stringify(logs));
-}
-
-export function saveNotifications(notifications: AppNotification[]): void {
-  if (typeof window === 'undefined') return;
-  localStorage.setItem(STORAGE_KEYS.NOTIFICATIONS, JSON.stringify(notifications));
-}
-
-const STORAGE_NOTES_KEY = 'azvasa_notes_clean';
-const STORAGE_TASKS_KEY = 'azvasa_tasks_clean';
-
-export function getNotes(): any[] {
-  if (typeof window === 'undefined') return [];
-  const raw = localStorage.getItem(STORAGE_NOTES_KEY);
-  if (!raw) {
-    localStorage.setItem(STORAGE_NOTES_KEY, JSON.stringify([]));
-    return [];
-  }
-  return JSON.parse(raw);
-}
-
-export function saveNotes(notes: any[]): void {
-  if (typeof window === 'undefined') return;
-  localStorage.setItem(STORAGE_NOTES_KEY, JSON.stringify(notes));
-}
-
-export function getTasks(): any[] {
-  if (typeof window === 'undefined') return [];
-  const raw = localStorage.getItem(STORAGE_TASKS_KEY);
-  if (!raw) {
-    localStorage.setItem(STORAGE_TASKS_KEY, JSON.stringify([]));
-    return [];
-  }
-  return JSON.parse(raw);
-}
-
-export function saveTasks(tasks: any[]): void {
-  if (typeof window === 'undefined') return;
-  localStorage.setItem(STORAGE_TASKS_KEY, JSON.stringify(tasks));
-}
-
-export function sendAutomatedReminders(): { sent: number } {
-  const sentLogs = runAutomatedFollowupReminders('2026-09-19');
-  return { sent: sentLogs.length };
-}
-

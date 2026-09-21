@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { AZVASALogo } from './AZVASALogo';
 import { UserProfile } from '../types';
-import { getProfiles, authenticateWithCredentials, setCurrentUser, syncUsersToServer, syncUsersFromServer } from '../lib/storage';
+import { setCurrentUser, syncUsersFromServer } from '../lib/storage';
+import { authenticateWithCentralDatabase, fetchUsersFromDatabase } from '../lib/firebase';
 import {
   Lock,
   User,
@@ -23,12 +24,13 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
   const [credError, setCredError] = useState<string | null>(null);
   const [credLoading, setCredLoading] = useState(false);
 
-  // Sync users from server upon mounting to guarantee multi-device access
+  // Sync users from central database upon mounting to guarantee multi-device access
   useEffect(() => {
+    fetchUsersFromDatabase();
     syncUsersFromServer();
   }, []);
 
-  // Credentials Submit Handler (Supports company email or username + password)
+  // Credentials Submit Handler (Supports company email or username + password across all devices)
   const handleCredentialsSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setCredError(null);
@@ -43,18 +45,32 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
       return;
     }
 
-    const localProfiles = getProfiles();
-
+    // 1. Centralized Firestore authentication (Single source of truth across all devices)
     try {
-      // 1. Try server API login first with client profiles attached
+      const dbResult = await authenticateWithCentralDatabase(cleanIdentifier, cleanPassword);
+      if (dbResult.success && dbResult.user) {
+        setCurrentUser(dbResult.user);
+        onLoginSuccess(dbResult.user);
+        setCredLoading(false);
+        return;
+      } else if (dbResult.error && (dbResult.error.includes('password') || dbResult.error.includes('deactivated'))) {
+        setCredError(dbResult.error);
+        setCredLoading(false);
+        return;
+      }
+    } catch (err) {
+      console.error('Error during central database authentication:', err);
+    }
+
+    // 2. Server API authentication (also queries central Firestore database)
+    try {
       const response = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           identifier: cleanIdentifier,
           usernameOrEmail: cleanIdentifier,
-          password: cleanPassword,
-          clientProfiles: localProfiles
+          password: cleanPassword
         })
       });
 
@@ -62,8 +78,8 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
 
       if (response.ok && data.success && data.user) {
         setCurrentUser(data.user);
-        syncUsersFromServer();
         onLoginSuccess(data.user);
+        setCredLoading(false);
         return;
       } else if (data.error) {
         setCredError(data.error);
@@ -71,19 +87,10 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
         return;
       }
     } catch {
-      // Server unreachable or network error, fallback to local storage
+      // Server unreachable
     }
 
-    // 2. Client-side local authentication fallback
-    const result = authenticateWithCredentials(cleanIdentifier, cleanPassword);
-    if (result.success && result.user) {
-      // Background sync to server
-      syncUsersToServer(localProfiles);
-      setCurrentUser(result.user);
-      onLoginSuccess(result.user);
-    } else {
-      setCredError(result.error || 'Invalid credentials. Please verify your username/company email and password.');
-    }
+    setCredError('No account found with this username or company email in the database.');
     setCredLoading(false);
   };
 
