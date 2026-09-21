@@ -27,6 +27,9 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
   onSelectLead
 }) => {
   const isSuperAdmin = currentUser.role === 'super_admin';
+  const isSalesManager = currentUser.role === 'sales_manager';
+  const isManagerOrAdmin = isSuperAdmin || isSalesManager;
+
   const [calendarView, setCalendarView] = useState<'month' | 'week' | 'day'>('month');
   const [repFilter, setRepFilter] = useState('');
   const [stageFilter, setStageFilter] = useState('');
@@ -43,12 +46,12 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
   // Filter leads based on role & dropdowns
   const filteredLeads = useMemo(() => {
     return leads.filter(l => {
-      if (!isSuperAdmin && l.assigned_rep_id !== currentUser.id) return false;
+      if (!isManagerOrAdmin && l.assigned_rep_id !== currentUser.id) return false;
       if (repFilter && l.assigned_rep_id !== repFilter) return false;
       if (stageFilter && l.current_stage_id !== stageFilter) return false;
       return !!l.next_action_date;
     });
-  }, [leads, isSuperAdmin, currentUser.id, repFilter, stageFilter]);
+  }, [leads, isManagerOrAdmin, currentUser.id, repFilter, stageFilter]);
 
   // Days in current month calculations
   const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
@@ -106,8 +109,8 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
             ))}
           </div>
 
-          {/* Rep filter for admin */}
-          {isSuperAdmin && (
+          {/* Rep filter for sales manager and super admin */}
+          {isManagerOrAdmin && (
             <select
               value={repFilter}
               onChange={(e) => setRepFilter(e.target.value)}

@@ -33,6 +33,8 @@ export const FollowupsView: React.FC<FollowupsViewProps> = ({
   onMarkDone
 }) => {
   const isSuperAdmin = currentUser.role === 'super_admin';
+  const isSalesManager = currentUser.role === 'sales_manager';
+  const isManagerOrAdmin = isSuperAdmin || isSalesManager;
   const currentDateStr = '2026-09-19';
 
   const [activeTab, setActiveTab] = useState<'today' | 'upcoming' | 'overdue' | 'completed'>('today');
@@ -43,14 +45,14 @@ export const FollowupsView: React.FC<FollowupsViewProps> = ({
   const [newDate, setNewDate] = useState('2026-09-21');
   const [newRemarks, setNewRemarks] = useState('');
 
-  // Role filter: Sales reps only see their own assigned leads
+  // Role filter: Only Sales Manager and Super Admin see all central leads. Sales reps strictly see their own assigned leads.
   const visibleLeads = useMemo(() => {
-    let list = isSuperAdmin ? leads : leads.filter(l => l.assigned_rep_id === currentUser.id);
-    if (repFilter && isSuperAdmin) {
+    let list = isManagerOrAdmin ? leads : leads.filter(l => l.assigned_rep_id === currentUser.id);
+    if (repFilter && isManagerOrAdmin) {
       list = list.filter(l => l.assigned_rep_id === repFilter);
     }
     return list;
-  }, [leads, isSuperAdmin, currentUser.id, repFilter]);
+  }, [leads, isManagerOrAdmin, currentUser.id, repFilter]);
 
   // Categorize leads into Today, Upcoming, Overdue, and Completed
   const { todayList, upcomingList, overdueList, completedList } = useMemo(() => {
@@ -115,8 +117,8 @@ export const FollowupsView: React.FC<FollowupsViewProps> = ({
           </p>
         </div>
 
-        {/* Representative Filter for Super Admin */}
-        {isSuperAdmin && (
+        {/* Representative Filter for Sales Manager and Super Admin */}
+        {isManagerOrAdmin && (
           <div className="flex items-center gap-2">
             <span className="text-xs text-[#646260] font-semibold whitespace-nowrap">Filter Rep:</span>
             <select

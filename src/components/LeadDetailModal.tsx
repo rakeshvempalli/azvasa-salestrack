@@ -67,6 +67,8 @@ export const LeadDetailModal: React.FC<LeadDetailModalProps> = ({
   if (!isOpen) return null;
 
   const isSuperAdmin = currentUser.role === 'super_admin';
+  const isSalesManager = currentUser.role === 'sales_manager';
+  const isManagerOrAdmin = isSuperAdmin || isSalesManager;
   const isNotInterested = 
     lead.current_stage_name?.trim().toLowerCase() === 'not interested' ||
     lead.current_stage_id === 'stage-lost' ||
@@ -276,8 +278,8 @@ export const LeadDetailModal: React.FC<LeadDetailModalProps> = ({
               </select>
             </div>
 
-            {/* Reassign Lead (Admin only per requirements) */}
-            {isSuperAdmin && (
+            {/* Reassign Lead (Sales Manager and Super Admin) */}
+            {isManagerOrAdmin && (
               <div className="flex items-center gap-1 text-xs">
                 <span className="text-[11px] font-semibold text-[#646260] hidden lg:inline">Reassign:</span>
                 <select

@@ -86,6 +86,25 @@ export default function App() {
   const [selectedLeadForDetail, setSelectedLeadForDetail] = useState<Lead | null>(null);
   const [leadForInteraction, setLeadForInteraction] = useState<Lead | null>(null);
 
+  // Filter state passed to LeadsView when clicking dashboard metrics (e.g., Demos)
+  const [leadsFilter, setLeadsFilter] = useState<{
+    stageFilter?: string;
+    followupStatusFilter?: string;
+    stateFilter?: string;
+    repFilter?: string;
+    productFilter?: string;
+    sourceFilter?: string;
+    searchTerm?: string;
+    activeOnly?: boolean;
+  }>({});
+
+  const handleNavigateTab = (tab: NavTab, filter?: any) => {
+    if (tab === 'leads') {
+      setLeadsFilter(filter || {});
+    }
+    setCurrentTab(tab);
+  };
+
   // Refresh helper
   const refreshData = () => {
     setLeads(getLeads());
@@ -489,7 +508,7 @@ export default function App() {
       {/* Persistent Desktop Sidebar & Mobile Drawer */}
       <Sidebar
         currentTab={currentTab}
-        onSelectTab={setCurrentTab}
+        onSelectTab={(tab) => handleNavigateTab(tab, {})}
         currentUser={currentUser}
         onLogout={handleLogout}
         counts={{
@@ -526,7 +545,7 @@ export default function App() {
                 interactions={interactions}
                 reps={reps}
                 onSelectLead={(lead) => setSelectedLeadForDetail(lead)}
-                onNavigateTab={(tab) => setCurrentTab(tab)}
+                onNavigateTab={handleNavigateTab}
                 onOpenAddLead={() => {
                   setEditingLead(null);
                   setIsAddLeadModalOpen(true);
@@ -541,6 +560,8 @@ export default function App() {
                 stages={stages}
                 reps={reps}
                 currentUser={currentUser}
+                initialFilters={leadsFilter}
+                onClearInitialFilters={() => setLeadsFilter({})}
                 onSelectLead={(lead) => setSelectedLeadForDetail(lead)}
                 onOpenAddLead={() => {
                   setEditingLead(null);
@@ -579,6 +600,7 @@ export default function App() {
                 reps={reps}
                 stages={stages}
                 interactions={interactions}
+                currentUser={currentUser}
               />
             )}
 

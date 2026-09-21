@@ -1379,6 +1379,7 @@ export function exportLeadsToCSV(leads: Lead[]): void {
   const headers = [
     'School Name',
     'Location',
+    'State',
     'POC Name',
     'POC Designation',
     'POC Contact',
@@ -1395,6 +1396,7 @@ export function exportLeadsToCSV(leads: Lead[]): void {
   const rows = leads.map(l => [
     `"${(l.school_name || '').replace(/"/g, '""')}"`,
     `"${(l.location || '').replace(/"/g, '""')}"`,
+    `"${(l.state || '').replace(/"/g, '""')}"`,
     `"${(l.poc_name || '').replace(/"/g, '""')}"`,
     `"${(l.poc_designation || '').replace(/"/g, '""')}"`,
     `"${(l.poc_contact || '').replace(/"/g, '""')}"`,

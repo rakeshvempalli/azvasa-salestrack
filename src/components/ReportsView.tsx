@@ -28,17 +28,32 @@ interface ReportsViewProps {
   reps: UserProfile[];
   stages: PipelineStage[];
   interactions: Interaction[];
+  currentUser: UserProfile;
 }
 
 export const ReportsView: React.FC<ReportsViewProps> = ({
   leads,
   reps,
   stages,
-  interactions
+  interactions,
+  currentUser
 }) => {
+  const isSuperAdmin = currentUser.role === 'super_admin';
+  const isSalesManager = currentUser.role === 'sales_manager';
+  const isManagerOrAdmin = isSuperAdmin || isSalesManager;
+
+  // For Sales Representatives, strictly ONLY their leads are visible
+  const visibleLeads = isManagerOrAdmin 
+    ? leads 
+    : leads.filter(l => l.assigned_rep_id === currentUser.id);
+
   const [activeTab, setActiveTab] = useState<'all' | 'managers' | 'reps' | 'states' | 'products'>('all');
 
   const activeReps = reps.filter(r => r.role === 'sales_rep');
+  const targetReps = isManagerOrAdmin 
+    ? activeReps 
+    : activeReps.filter(r => r.id === currentUser.id);
+
   const salesManagers = reps.filter(r => r.role === 'sales_manager');
 
   // If no manager is explicitly created, include super admin / managers
@@ -46,7 +61,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
     ? salesManagers
     : reps.filter(r => r.role === 'super_admin');
 
-  // 1. Sales Managers Performance Data
+  // 1. Sales Managers Performance Data (Only calculated/relevant for managers/admins)
   const managerPerformance = managersOrLeadership.map(manager => {
     const managerLeads = leads.filter(l => l.assigned_rep_id === manager.id);
     const total = managerLeads.length;
@@ -71,13 +86,13 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
     };
   });
 
-  // 2. Sales Representative Performance Table data
-  const repPerformance = activeReps.map(rep => {
+  // 2. Sales Representative Performance Table data (Scoped to current user for reps)
+  const repPerformance = targetReps.map(rep => {
     const repLeads = leads.filter(l => l.assigned_rep_id === rep.id);
     const total = repLeads.length;
-    const visits = repLeads.filter(l => l.current_stage_name === 'Visit').length;
-    const demos = repLeads.filter(l => l.current_stage_name === 'Demo Stage').length;
-    const agreements = repLeads.filter(l => l.current_stage_name === 'Agreement Stage').length;
+    const visits = repLeads.filter(l => l.current_stage_name === 'Visit' || l.current_stage_id === 'stage-3').length;
+    const demos = repLeads.filter(l => l.current_stage_name === 'Demo Stage' || l.current_stage_id === 'stage-4').length;
+    const agreements = repLeads.filter(l => l.current_stage_name === 'Agreement Stage' || l.current_stage_id === 'stage-7').length;
     const conversionRate = total > 0 ? Math.round((agreements / total) * 100) : 0;
 
     return {
@@ -93,9 +108,9 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
     };
   });
 
-  // 3. State-wise Leads Statistics
+  // 3. State-wise Leads Statistics (Derived from visibleLeads)
   const stateStats: Record<string, { total: number; active: number; won: number }> = {};
-  leads.forEach(l => {
+  visibleLeads.forEach(l => {
     const stateKey = l.state || 'Unassigned State';
     if (!stateStats[stateKey]) {
       stateStats[stateKey] = { total: 0, active: 0, won: 0 };
@@ -119,9 +134,9 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
     }))
     .sort((a, b) => b.leads - a.leads);
 
-  // 4. Product Sales Data
+  // 4. Product Sales Data (Derived from visibleLeads)
   const productStats: Record<string, { total: number; won: number }> = {};
-  leads.forEach(l => {
+  visibleLeads.forEach(l => {
     const pKey = l.product || 'Others';
     if (!productStats[pKey]) {
       productStats[pKey] = { total: 0, won: 0 };
@@ -137,7 +152,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
       name,
       count: data.total,
       won: data.won,
-      share: leads.length > 0 ? Math.round((data.total / leads.length) * 100) : 0
+      share: visibleLeads.length > 0 ? Math.round((data.total / visibleLeads.length) * 100) : 0
     }))
     .sort((a, b) => b.count - a.count);
 
@@ -218,102 +233,107 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
           </p>
         </div>
 
-        <div className="flex items-center gap-2.5">
-          <button
-            onClick={exportAnalyticsCSV}
-            className="flex items-center gap-1.5 px-3.5 py-2 bg-[#084ab8] hover:bg-[#06378a] text-white rounded-xl text-xs font-semibold shadow-xs transition-all cursor-pointer"
-          >
-            <Download className="w-3.5 h-3.5" />
-            <span>Export Full Analytics CSV</span>
-          </button>
-        </div>
-      </div>
-
-      {/* SECTION 1: SALES MANAGER PERFORMANCE GRAPH & TABLE */}
-      <div className="bg-white border border-[#e8e7e5] rounded-2xl shadow-xs overflow-hidden">
-        <div className="p-5 border-b border-[#e8e7e5] flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+        {/* Export option strictly restricted to Sales Manager and Super Admin */}
+        {isManagerOrAdmin && (
           <div className="flex items-center gap-2.5">
-            <div className="p-2 rounded-xl bg-[#eef4ff] text-[#084ab8]">
-              <Briefcase className="w-5 h-5" />
-            </div>
-            <div>
-              <h3 className="text-sm font-bold text-[#084ab8]">
-                Sales Manager Performance Comparison
-              </h3>
-              <p className="text-xs text-[#646260]">
-                Leads handled, stages managed, converted institutional accounts, and activities logged
-              </p>
-            </div>
+            <button
+              onClick={exportAnalyticsCSV}
+              className="flex items-center gap-1.5 px-3.5 py-2 bg-[#084ab8] hover:bg-[#06378a] text-white rounded-xl text-xs font-semibold shadow-xs transition-all cursor-pointer"
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span>Export Full Analytics CSV</span>
+            </button>
           </div>
-          <span className="text-xs font-bold px-3 py-1 rounded-full bg-[#fafaf9] text-[#646260] border border-[#e8e7e5] self-start sm:self-auto">
-            {managerPerformance.length} Manager Accounts
-          </span>
-        </div>
-
-        <div className="p-5 space-y-5">
-          {managerPerformance.length === 0 ? (
-            <div className="py-8 text-center bg-[#fafaf9] rounded-xl border border-dashed border-[#e8e7e5]">
-              <p className="text-xs text-[#646260]">No sales manager data available.</p>
-            </div>
-          ) : (
-            <>
-              {/* Comparison Bar Chart */}
-              <div className="h-60 w-full">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={managerPerformance} margin={{ top: 10, right: 20, left: -15, bottom: 10 }}>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f3f2f1" />
-                    <XAxis dataKey="name" tick={{ fontSize: 11, fill: '#2d2b2a', fontWeight: 600 }} />
-                    <YAxis tick={{ fontSize: 10, fill: '#646260' }} />
-                    <Tooltip
-                      contentStyle={{ backgroundColor: '#ffffff', borderColor: '#e8e7e5', borderRadius: 8, fontSize: 11 }}
-                    />
-                    <Legend wrapperStyle={{ fontSize: 11, paddingTop: 6 }} />
-                    <Bar dataKey="totalLeads" fill="#084ab8" name="Total Leads Handled" radius={[4, 4, 0, 0]} />
-                    <Bar dataKey="agreementsWon" fill="#f28705" name="Agreements Won (Converted)" radius={[4, 4, 0, 0]} />
-                    <Bar dataKey="activitiesCount" fill="#2d2b2a" name="Follow-ups / Activities" radius={[4, 4, 0, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-
-              {/* Manager Matrix Table */}
-              <div className="overflow-x-auto border border-[#e8e7e5] rounded-xl">
-                <table className="w-full text-left text-xs">
-                  <thead className="bg-[#fafaf9] border-b border-[#e8e7e5] text-[#646260] font-semibold">
-                    <tr>
-                      <th className="py-3 px-4">Sales Manager</th>
-                      <th className="py-3 px-4">Employee ID</th>
-                      <th className="py-3 px-4">Designation</th>
-                      <th className="py-3 px-4">Leads Handled</th>
-                      <th className="py-3 px-4">Stages Managed</th>
-                      <th className="py-3 px-4">Converted Won</th>
-                      <th className="py-3 px-4">Activities Completed</th>
-                      <th className="py-3 px-4">Win Rate</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-[#f3f2f1]">
-                    {managerPerformance.map(m => (
-                      <tr key={m.id} className="hover:bg-[#fafaf9] transition-colors">
-                        <td className="py-3 px-4 font-bold text-[#084ab8]">{m.name}</td>
-                        <td className="py-3 px-4 text-[#646260]">{m.employeeId}</td>
-                        <td className="py-3 px-4 text-[#2d2b2a]">{m.designation}</td>
-                        <td className="py-3 px-4 font-semibold text-[#084ab8]">{m.totalLeads}</td>
-                        <td className="py-3 px-4 text-[#646260]">{m.stagesManaged} stages</td>
-                        <td className="py-3 px-4 font-bold text-[#f28705]">{m.agreementsWon}</td>
-                        <td className="py-3 px-4 text-[#2d2b2a]">{m.activitiesCount}</td>
-                        <td className="py-3 px-4">
-                          <span className="px-2 py-0.5 rounded-full font-bold bg-[#eef4ff] text-[#084ab8] text-[10px]">
-                            {m.winRate}%
-                          </span>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </>
-          )}
-        </div>
+        )}
       </div>
+
+      {/* SECTION 1: SALES MANAGER PERFORMANCE GRAPH & TABLE (Visible to Managers & Super Admin) */}
+      {isManagerOrAdmin && (
+        <div className="bg-white border border-[#e8e7e5] rounded-2xl shadow-xs overflow-hidden">
+          <div className="p-5 border-b border-[#e8e7e5] flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <div className="flex items-center gap-2.5">
+              <div className="p-2 rounded-xl bg-[#eef4ff] text-[#084ab8]">
+                <Briefcase className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-[#084ab8]">
+                  Sales Manager Performance Comparison
+                </h3>
+                <p className="text-xs text-[#646260]">
+                  Leads handled, stages managed, converted institutional accounts, and activities logged
+                </p>
+              </div>
+            </div>
+            <span className="text-xs font-bold px-3 py-1 rounded-full bg-[#fafaf9] text-[#646260] border border-[#e8e7e5] self-start sm:self-auto">
+              {managerPerformance.length} Manager Accounts
+            </span>
+          </div>
+
+          <div className="p-5 space-y-5">
+            {managerPerformance.length === 0 ? (
+              <div className="py-8 text-center bg-[#fafaf9] rounded-xl border border-dashed border-[#e8e7e5]">
+                <p className="text-xs text-[#646260]">No sales manager data available.</p>
+              </div>
+            ) : (
+              <>
+                {/* Comparison Bar Chart */}
+                <div className="h-60 w-full">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={managerPerformance} margin={{ top: 10, right: 20, left: -15, bottom: 10 }}>
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f3f2f1" />
+                      <XAxis dataKey="name" tick={{ fontSize: 11, fill: '#2d2b2a', fontWeight: 600 }} />
+                      <YAxis tick={{ fontSize: 10, fill: '#646260' }} />
+                      <Tooltip
+                        contentStyle={{ backgroundColor: '#ffffff', borderColor: '#e8e7e5', borderRadius: 8, fontSize: 11 }}
+                      />
+                      <Legend wrapperStyle={{ fontSize: 11, paddingTop: 6 }} />
+                      <Bar dataKey="totalLeads" fill="#084ab8" name="Total Leads Handled" radius={[4, 4, 0, 0]} />
+                      <Bar dataKey="agreementsWon" fill="#f28705" name="Agreements Won (Converted)" radius={[4, 4, 0, 0]} />
+                      <Bar dataKey="activitiesCount" fill="#2d2b2a" name="Follow-ups / Activities" radius={[4, 4, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+
+                {/* Manager Matrix Table */}
+                <div className="overflow-x-auto border border-[#e8e7e5] rounded-xl">
+                  <table className="w-full text-left text-xs">
+                    <thead className="bg-[#fafaf9] border-b border-[#e8e7e5] text-[#646260] font-semibold">
+                      <tr>
+                        <th className="py-3 px-4">Sales Manager</th>
+                        <th className="py-3 px-4">Employee ID</th>
+                        <th className="py-3 px-4">Designation</th>
+                        <th className="py-3 px-4">Leads Handled</th>
+                        <th className="py-3 px-4">Stages Managed</th>
+                        <th className="py-3 px-4">Converted Won</th>
+                        <th className="py-3 px-4">Activities Completed</th>
+                        <th className="py-3 px-4">Win Rate</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-[#f3f2f1]">
+                      {managerPerformance.map(m => (
+                        <tr key={m.id} className="hover:bg-[#fafaf9] transition-colors">
+                          <td className="py-3 px-4 font-bold text-[#084ab8]">{m.name}</td>
+                          <td className="py-3 px-4 text-[#646260]">{m.employeeId}</td>
+                          <td className="py-3 px-4 text-[#2d2b2a]">{m.designation}</td>
+                          <td className="py-3 px-4 font-semibold text-[#084ab8]">{m.totalLeads}</td>
+                          <td className="py-3 px-4 text-[#646260]">{m.stagesManaged} stages</td>
+                          <td className="py-3 px-4 font-bold text-[#f28705]">{m.agreementsWon}</td>
+                          <td className="py-3 px-4 text-[#2d2b2a]">{m.activitiesCount}</td>
+                          <td className="py-3 px-4">
+                            <span className="px-2 py-0.5 rounded-full font-bold bg-[#eef4ff] text-[#084ab8] text-[10px]">
+                              {m.winRate}%
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* SECTION 2: STATE-WISE LEADS PRESENTATION */}
       <div className="bg-white border border-[#e8e7e5] rounded-2xl p-5 shadow-xs space-y-4">
@@ -480,11 +500,11 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
           <div className="flex items-center gap-2">
             <Award className="w-4 h-4 text-[#f28705]" />
             <h3 className="text-sm font-bold text-[#084ab8]">
-              Sales Representative Individual Performance
+              {isManagerOrAdmin ? 'Sales Representative Individual Performance' : 'My Performance Overview'}
             </h3>
           </div>
           <span className="text-xs text-[#646260]">
-            Field consultant pipeline conversions
+            {isManagerOrAdmin ? 'Field consultant pipeline conversions' : 'Your outreach, visits, demos, and conversions'}
           </span>
         </div>
 

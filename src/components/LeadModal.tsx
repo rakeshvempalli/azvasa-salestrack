@@ -26,6 +26,8 @@ export const LeadModal: React.FC<LeadModalProps> = ({
   // Active reps only for assignment (per requirement: "Only active sales representatives can receive new leads.")
   const activeReps = reps.filter(r => r.role === 'sales_rep' && r.status === 'active');
   const isSuperAdmin = currentUser.role === 'super_admin';
+  const isSalesManager = currentUser.role === 'sales_manager';
+  const isManagerOrAdmin = isSuperAdmin || isSalesManager;
 
   // Form states
   const [schoolName, setSchoolName] = useState(existingLead?.school_name || '');
@@ -39,7 +41,7 @@ export const LeadModal: React.FC<LeadModalProps> = ({
   const [product, setProduct] = useState<ProductType>(existingLead?.product || 'INTELLIREAD');
   const [otherProduct, setOtherProduct] = useState(existingLead?.other_product || '');
   const [assignedRepId, setAssignedRepId] = useState(
-    existingLead?.assigned_rep_id || (isSuperAdmin ? (activeReps[0]?.id || '') : currentUser.id)
+    existingLead?.assigned_rep_id || (isManagerOrAdmin ? (activeReps[0]?.id || '') : currentUser.id)
   );
   const [currentStageId, setCurrentStageId] = useState(
     existingLead?.current_stage_id || stages[0]?.id || 'stage-1'
@@ -415,15 +417,21 @@ export const LeadModal: React.FC<LeadModalProps> = ({
                 </label>
                 <select
                   value={assignedRepId}
-                  disabled={!isSuperAdmin && !!existingLead}
+                  disabled={!isManagerOrAdmin}
                   onChange={(e) => setAssignedRepId(e.target.value)}
                   className="w-full px-3 py-2 text-xs border border-[#e8e7e5] rounded-xl bg-white focus:outline-none focus:border-[#084ab8] disabled:bg-[#f9f9f8] disabled:text-[#8e8b88]"
                 >
-                  {activeReps.map(rep => (
-                    <option key={rep.id} value={rep.id}>
-                      {rep.full_name} ({rep.employee_id}) - Active
+                  {isManagerOrAdmin ? (
+                    activeReps.map(rep => (
+                      <option key={rep.id} value={rep.id}>
+                        {rep.full_name} ({rep.employee_id}) - Active
+                      </option>
+                    ))
+                  ) : (
+                    <option value={currentUser.id}>
+                      {currentUser.full_name} ({currentUser.employee_id || 'My Account'})
                     </option>
-                  ))}
+                  )}
                 </select>
                 <p className="text-[10px] text-[#646260] mt-1">
                   Only active representatives can receive lead accounts.

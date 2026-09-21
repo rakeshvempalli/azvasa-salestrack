@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Lead, PipelineStage, UserProfile, INDIAN_STATES_AND_UTS } from '../types';
 import { exportLeadsToCSV } from '../lib/storage';
 import {
@@ -22,11 +22,24 @@ import {
   Globe2
 } from 'lucide-react';
 
+interface LeadsFilterOptions {
+  stageFilter?: string;
+  followupStatusFilter?: string;
+  stateFilter?: string;
+  repFilter?: string;
+  productFilter?: string;
+  sourceFilter?: string;
+  searchTerm?: string;
+  activeOnly?: boolean;
+}
+
 interface LeadsViewProps {
   leads: Lead[];
   stages: PipelineStage[];
   reps: UserProfile[];
   currentUser: UserProfile;
+  initialFilters?: LeadsFilterOptions;
+  onClearInitialFilters?: () => void;
   onSelectLead: (lead: Lead) => void;
   onOpenAddLead: () => void;
   onOpenAddInteraction: (lead: Lead) => void;
@@ -38,6 +51,8 @@ export const LeadsView: React.FC<LeadsViewProps> = ({
   stages,
   reps,
   currentUser,
+  initialFilters,
+  onClearInitialFilters,
   onSelectLead,
   onOpenAddLead,
   onOpenAddInteraction,
@@ -51,30 +66,61 @@ export const LeadsView: React.FC<LeadsViewProps> = ({
   const [schoolToDelete, setSchoolToDelete] = useState<Lead | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
-  // Centralized lead visibility: Admins and Managers view all leads.
-  // Sales Reps see all leads with a toggle for "My Assigned Leads"
-  const [scopeFilter, setScopeFilter] = useState<'all' | 'my'>('all');
-
+  // Centralized lead visibility: Only Sales Manager and Super Admin can see all Central leads.
+  // For Sales Representatives, strictly ONLY their assigned leads are visible.
   const baseLeads = useMemo(() => {
     if (isManagerOrAdmin) {
       return leads;
     }
-    if (scopeFilter === 'my') {
-      return leads.filter(l => l.assigned_rep_id === currentUser.id);
+    return leads.filter(l => l.assigned_rep_id === currentUser.id);
+  }, [leads, isManagerOrAdmin, currentUser.id]);
+
+  // Helper to normalize stage filter values (e.g. 'demos' -> stage-4)
+  const resolveStageFilter = (val?: string): string => {
+    if (!val) return '';
+    const lower = val.toLowerCase().trim();
+    if (lower === 'demos' || lower === 'demo') {
+      const s = stages.find(st => st.name.toLowerCase().includes('demo') || st.id === 'stage-4');
+      return s ? s.id : 'stage-4';
     }
-    return leads;
-  }, [leads, isManagerOrAdmin, scopeFilter, currentUser.id]);
+    if (lower === 'visits' || lower === 'visit') {
+      const s = stages.find(st => st.name.toLowerCase().includes('visit') || st.id === 'stage-3');
+      return s ? s.id : 'stage-3';
+    }
+    if (lower === 'agreements' || lower === 'agreement') {
+      const s = stages.find(st => st.name.toLowerCase().includes('agreement') || st.id === 'stage-7');
+      return s ? s.id : 'stage-7';
+    }
+    const matched = stages.find(st => st.id === val || st.name.toLowerCase() === lower);
+    return matched ? matched.id : val;
+  };
 
   // Search & Filter State
-  const [searchTerm, setSearchTerm] = useState('');
-  const [stageFilter, setStageFilter] = useState('');
-  const [stateFilter, setStateFilter] = useState('');
-  const [sourceFilter, setSourceFilter] = useState('');
-  const [productFilter, setProductFilter] = useState('');
-  const [repFilter, setRepFilter] = useState('');
-  const [followupStatusFilter, setFollowupStatusFilter] = useState('');
+  const [searchTerm, setSearchTerm] = useState(initialFilters?.searchTerm || '');
+  const [stageFilter, setStageFilter] = useState(() => resolveStageFilter(initialFilters?.stageFilter));
+  const [stateFilter, setStateFilter] = useState(initialFilters?.stateFilter || '');
+  const [sourceFilter, setSourceFilter] = useState(initialFilters?.sourceFilter || '');
+  const [productFilter, setProductFilter] = useState(initialFilters?.productFilter || '');
+  const [repFilter, setRepFilter] = useState(initialFilters?.repFilter || '');
+  const [followupStatusFilter, setFollowupStatusFilter] = useState(initialFilters?.followupStatusFilter || '');
+  const [activeOnly, setActiveOnly] = useState(initialFilters?.activeOnly || false);
   const [sortBy, setSortBy] = useState<'updated_at' | 'school_name' | 'next_action_date'>('updated_at');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
+
+  // Synchronize when initialFilters prop changes (e.g., user clicks Demos on Dashboard)
+  useEffect(() => {
+    if (initialFilters) {
+      setSearchTerm(initialFilters.searchTerm || '');
+      setStageFilter(resolveStageFilter(initialFilters.stageFilter));
+      setStateFilter(initialFilters.stateFilter || '');
+      setSourceFilter(initialFilters.sourceFilter || '');
+      setProductFilter(initialFilters.productFilter || '');
+      setRepFilter(initialFilters.repFilter || '');
+      setFollowupStatusFilter(initialFilters.followupStatusFilter || '');
+      setActiveOnly(initialFilters.activeOnly || false);
+      setCurrentPage(1);
+    }
+  }, [initialFilters, stages]);
 
   // Pagination State
   const [currentPage, setCurrentPage] = useState(1);
@@ -96,32 +142,65 @@ export const LeadsView: React.FC<LeadsViewProps> = ({
         }
       }
 
-      // 2. Stage Filter
-      if (stageFilter && lead.current_stage_id !== stageFilter && lead.current_stage_name !== stageFilter) {
-        return false;
+      // 2. Active Only Filter
+      if (activeOnly) {
+        if (
+          lead.current_stage_name === 'Not Interested' || 
+          lead.current_stage_id === 'stage-lost' || 
+          lead.current_stage_id === 'stage-not-interested'
+        ) {
+          return false;
+        }
       }
 
-      // 3. State Filter
+      // 3. Stage Filter: robust match across IDs, names, and normalized identifiers
+      if (stageFilter) {
+        const stageObj = stages.find(s => s.id === stageFilter || s.name.toLowerCase() === stageFilter.toLowerCase());
+        const matchId = lead.current_stage_id === stageFilter;
+        const matchName = lead.current_stage_name?.toLowerCase() === stageFilter.toLowerCase();
+        const matchStageObj = stageObj && (
+          lead.current_stage_id === stageObj.id || 
+          lead.current_stage_name?.toLowerCase() === stageObj.name.toLowerCase()
+        );
+
+        // Robust semantic check for KPI categories (Demo, Visit, Agreement)
+        const isDemoFilter = stageFilter === 'stage-4' || (stageObj && stageObj.name.toLowerCase().includes('demo'));
+        const isLeadDemo = lead.current_stage_id === 'stage-4' || lead.current_stage_name?.toLowerCase().includes('demo');
+
+        const isVisitFilter = stageFilter === 'stage-3' || (stageObj && stageObj.name.toLowerCase().includes('visit'));
+        const isLeadVisit = lead.current_stage_id === 'stage-3' || lead.current_stage_name?.toLowerCase().includes('visit');
+
+        const isAgreementFilter = stageFilter === 'stage-7' || (stageObj && stageObj.name.toLowerCase().includes('agreement'));
+        const isLeadAgreement = lead.current_stage_id === 'stage-7' || lead.current_stage_name?.toLowerCase().includes('agreement');
+
+        const semanticMatch = (isDemoFilter && isLeadDemo) || (isVisitFilter && isLeadVisit) || (isAgreementFilter && isLeadAgreement);
+
+        if (!matchId && !matchName && !matchStageObj && !semanticMatch) {
+          return false;
+        }
+      }
+
+      // 4. State Filter
       if (stateFilter && lead.state !== stateFilter) {
         return false;
       }
 
-      // 4. Source Filter
+      // 5. Source Filter
       if (sourceFilter && lead.lead_source !== sourceFilter) {
         return false;
       }
 
-      // 5. Product Filter
+      // 6. Product Filter
       if (productFilter && lead.product !== productFilter) {
         return false;
       }
 
-      // 6. Sales Rep Filter
+      // 7. Sales Rep Filter
       if (repFilter && lead.assigned_rep_id !== repFilter) {
         return false;
       }
 
-      // 7. Followup Status Filter
+      // 8. Followup Status Filter
       if (followupStatusFilter) {
         if (followupStatusFilter === 'today') {
           if (lead.next_action_date !== currentDateStr) return false;
@@ -148,7 +227,7 @@ export const LeadsView: React.FC<LeadsViewProps> = ({
       }
       return sortOrder === 'asc' ? comparison : -comparison;
     });
-  }, [baseLeads, searchTerm, stageFilter, stateFilter, sourceFilter, productFilter, repFilter, followupStatusFilter, sortBy, sortOrder, currentDateStr]);
+  }, [baseLeads, searchTerm, stageFilter, stateFilter, sourceFilter, productFilter, repFilter, followupStatusFilter, activeOnly, sortBy, sortOrder, stages]);
 
   // Paginated chunk
   const totalPages = Math.ceil(filteredLeads.length / itemsPerPage) || 1;
@@ -169,7 +248,11 @@ export const LeadsView: React.FC<LeadsViewProps> = ({
     setProductFilter('');
     setRepFilter('');
     setFollowupStatusFilter('');
+    setActiveOnly(false);
     setCurrentPage(1);
+    if (onClearInitialFilters) {
+      onClearInitialFilters();
+    }
   };
 
   return (
@@ -179,58 +262,42 @@ export const LeadsView: React.FC<LeadsViewProps> = ({
         <div>
           <div className="flex items-center gap-2 flex-wrap">
             <h2 className="text-xl font-bold text-[#084ab8]">
-              Institutional Leads Directory
+              {isManagerOrAdmin ? 'Institutional Leads Directory' : 'My Assigned Leads'}
             </h2>
             <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-[#eef4ff] text-[#084ab8] border border-[#084ab8]/20">
               {filteredLeads.length} leads
             </span>
-            <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-[#fafaf9] text-[#646260] border border-[#e8e7e5] flex items-center gap-1">
-              <Globe2 className="w-3 h-3 text-[#084ab8]" />
-              Central Database
-            </span>
+            {isManagerOrAdmin ? (
+              <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-[#fafaf9] text-[#646260] border border-[#e8e7e5] flex items-center gap-1">
+                <Globe2 className="w-3 h-3 text-[#084ab8]" />
+                Central Database
+              </span>
+            ) : (
+              <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-[#fafaf9] text-[#646260] border border-[#e8e7e5] flex items-center gap-1">
+                <Building2 className="w-3 h-3 text-[#084ab8]" />
+                Representative Workspace
+              </span>
+            )}
           </div>
           <p className="text-xs text-[#646260] mt-0.5">
-            Manage institutional accounts, states, product interests, stage progression, and follow-up activities
+            {isManagerOrAdmin
+              ? 'Centralized database view across all institutional accounts, territories, representatives, and pipeline stages'
+              : 'Track and manage your assigned school accounts, outreach activities, and upcoming follow-up schedules'}
           </p>
         </div>
 
         <div className="flex items-center gap-2.5 flex-wrap">
-          {/* Scope Toggle for Sales Representatives */}
-          {!isManagerOrAdmin && (
-            <div className="flex items-center p-1 bg-[#f3f2f1] rounded-xl border border-[#e8e7e5] text-xs">
-              <button
-                type="button"
-                onClick={() => { setScopeFilter('all'); setCurrentPage(1); }}
-                className={`px-2.5 py-1 rounded-lg font-semibold transition-colors cursor-pointer ${
-                  scopeFilter === 'all'
-                    ? 'bg-white text-[#084ab8] shadow-xs'
-                    : 'text-[#646260] hover:text-[#2d2b2a]'
-                }`}
-              >
-                All Central Leads
-              </button>
-              <button
-                type="button"
-                onClick={() => { setScopeFilter('my'); setCurrentPage(1); }}
-                className={`px-2.5 py-1 rounded-lg font-semibold transition-colors cursor-pointer ${
-                  scopeFilter === 'my'
-                    ? 'bg-white text-[#084ab8] shadow-xs'
-                    : 'text-[#646260] hover:text-[#2d2b2a]'
-                }`}
-              >
-                My Leads Only
-              </button>
-            </div>
+          {/* Export Option: strictly restricted to Sales Manager and Super Admin */}
+          {isManagerOrAdmin && (
+            <button
+              onClick={handleExportCSV}
+              title="Export filtered leads as CSV"
+              className="flex items-center gap-1.5 px-3 py-2 border border-[#084ab8] text-[#084ab8] hover:bg-[#eef4ff] rounded-xl text-xs font-semibold transition-all cursor-pointer"
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span>Export CSV</span>
+            </button>
           )}
-
-          <button
-            onClick={handleExportCSV}
-            title="Export filtered leads as CSV"
-            className="flex items-center gap-1.5 px-3 py-2 border border-[#084ab8] text-[#084ab8] hover:bg-[#eef4ff] rounded-xl text-xs font-semibold transition-all cursor-pointer"
-          >
-            <Download className="w-3.5 h-3.5" />
-            <span>Export CSV</span>
-          </button>
 
           <button
             onClick={onOpenAddLead}
@@ -244,6 +311,66 @@ export const LeadsView: React.FC<LeadsViewProps> = ({
 
       {/* Filter & Search Bar */}
       <div className="bg-white border border-[#e8e7e5] rounded-2xl p-4 shadow-xs space-y-3">
+        {/* Active Filter Notification Bar */}
+        {(stageFilter || followupStatusFilter || stateFilter || repFilter || productFilter || sourceFilter || activeOnly || searchTerm) && (
+          <div className="flex items-center gap-2 bg-[#eef4ff] border border-[#084ab8]/20 px-3.5 py-2 rounded-xl text-xs text-[#084ab8] flex-wrap justify-between">
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <span className="font-bold">Active Filter:</span>
+              {stageFilter && (
+                <span className="bg-white px-2 py-0.5 rounded-md border border-[#084ab8]/30 font-semibold shadow-2xs">
+                  Stage: {stages.find(s => s.id === stageFilter)?.name || stageFilter}
+                </span>
+              )}
+              {followupStatusFilter && (
+                <span className="bg-white px-2 py-0.5 rounded-md border border-[#084ab8]/30 font-semibold shadow-2xs capitalize">
+                  Follow-up: {followupStatusFilter}
+                </span>
+              )}
+              {activeOnly && (
+                <span className="bg-white px-2 py-0.5 rounded-md border border-[#084ab8]/30 font-semibold shadow-2xs">
+                  Active Pipeline Only
+                </span>
+              )}
+              {repFilter && (
+                <span className="bg-white px-2 py-0.5 rounded-md border border-[#084ab8]/30 font-semibold shadow-2xs">
+                  Rep: {reps.find(r => r.id === repFilter)?.full_name || repFilter}
+                </span>
+              )}
+              {stateFilter && (
+                <span className="bg-white px-2 py-0.5 rounded-md border border-[#084ab8]/30 font-semibold shadow-2xs">
+                  State: {stateFilter}
+                </span>
+              )}
+              {productFilter && (
+                <span className="bg-white px-2 py-0.5 rounded-md border border-[#084ab8]/30 font-semibold shadow-2xs">
+                  Product: {productFilter}
+                </span>
+              )}
+              {sourceFilter && (
+                <span className="bg-white px-2 py-0.5 rounded-md border border-[#084ab8]/30 font-semibold shadow-2xs">
+                  Source: {sourceFilter}
+                </span>
+              )}
+              {searchTerm && (
+                <span className="bg-white px-2 py-0.5 rounded-md border border-[#084ab8]/30 font-semibold shadow-2xs">
+                  &ldquo;{searchTerm}&rdquo;
+                </span>
+              )}
+            </div>
+
+            <div className="flex items-center gap-3">
+              <span className="font-semibold text-[#084ab8] text-[11px]">
+                Showing {filteredLeads.length} {filteredLeads.length === 1 ? 'lead' : 'leads'}
+              </span>
+              <button
+                onClick={resetFilters}
+                className="text-xs font-bold underline hover:text-[#06378a] cursor-pointer text-[#084ab8]"
+              >
+                Clear filter (Show all)
+              </button>
+            </div>
+          </div>
+        )}
         
         {/* Search Input Row */}
         <div className="flex flex-col md:flex-row items-center gap-3">

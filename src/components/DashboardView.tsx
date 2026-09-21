@@ -37,7 +37,7 @@ interface DashboardViewProps {
   interactions: Interaction[];
   reps: UserProfile[];
   onSelectLead: (lead: Lead) => void;
-  onNavigateTab: (tab: any) => void;
+  onNavigateTab: (tab: any, filter?: any) => void;
   onOpenAddLead: () => void;
   onOpenAddInteraction: (lead: Lead) => void;
 }
@@ -141,10 +141,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
   // 3. SALES REPRESENTATIVES PERFORMANCE CALCULATION
   const salesRepsList = reps.filter(r => r.role === 'sales_rep');
-  // Fallback to active reps or all team members except super admin if none explicitly marked
-  const displayReps = salesRepsList.length > 0 
-    ? salesRepsList 
-    : reps.filter(r => r.role !== 'super_admin');
+  // For managers and admin, show all sales reps; for reps, only show their own record
+  const displayReps = isManagerOrAdmin
+    ? (salesRepsList.length > 0 ? salesRepsList : reps.filter(r => r.role !== 'super_admin'))
+    : reps.filter(r => r.id === currentUser.id);
 
   const repPerformanceData = displayReps.map(rep => {
     const repLeads = leads.filter(l => l.assigned_rep_id === rep.id);
@@ -229,8 +229,21 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           onFilterClick={(type) => {
             if (type === 'reps') {
               onNavigateTab('admin-reps');
+            } else if (type === 'demos') {
+              const demoStage = stages.find(s => s.name.toLowerCase().includes('demo') || s.id === 'stage-4');
+              onNavigateTab('leads', { stageFilter: demoStage?.id || 'stage-4' });
+            } else if (type === 'visits') {
+              const visitStage = stages.find(s => s.name.toLowerCase().includes('visit') || s.id === 'stage-3');
+              onNavigateTab('leads', { stageFilter: visitStage?.id || 'stage-3' });
+            } else if (type === 'agreements') {
+              const agreementStage = stages.find(s => s.name.toLowerCase().includes('agreement') || s.id === 'stage-7');
+              onNavigateTab('leads', { stageFilter: agreementStage?.id || 'stage-7' });
+            } else if (type === 'overdue') {
+              onNavigateTab('leads', { followupStatusFilter: 'overdue' });
+            } else if (type === 'active') {
+              onNavigateTab('leads', { activeOnly: true });
             } else {
-              onNavigateTab('leads');
+              onNavigateTab('leads', {});
             }
           }}
         />
@@ -240,7 +253,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       <PipelineView
         stages={stages}
         leads={visibleLeads}
-        onSelectStage={() => onNavigateTab('leads')}
+        onSelectStage={(stageId) => {
+          onNavigateTab('leads', { stageFilter: stageId });
+        }}
       />
 
       {/* SECTION 1: STATE-WISE LEADS GRAPH & BREAKDOWN */}
@@ -312,12 +327,17 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               </span>
               <div className="divide-y divide-[#e8e7e5] max-h-60 overflow-y-auto pr-1">
                 {stateChartData.map((item, idx) => (
-                  <div key={item.state} className="py-2 flex items-center justify-between text-xs">
+                  <div
+                    key={item.state}
+                    onClick={() => onNavigateTab('leads', { stateFilter: item.state })}
+                    className="py-2 px-2 flex items-center justify-between text-xs hover:bg-white rounded-lg cursor-pointer transition-colors"
+                    title={`View institutional leads in ${item.state}`}
+                  >
                     <div className="flex items-center gap-2">
                       <span className="w-5 text-[11px] font-bold text-[#8e8b88]">
                         #{idx + 1}
                       </span>
-                      <span className="font-semibold text-[#2d2b2a]">{item.state}</span>
+                      <span className="font-semibold text-[#2d2b2a] hover:text-[#084ab8]">{item.state}</span>
                     </div>
                     <div className="flex items-center gap-2">
                       <span className="px-2 py-0.5 rounded font-bold bg-[#eef4ff] text-[#084ab8] text-[11px]">
@@ -402,7 +422,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 {productChartData.map((p, idx) => (
                   <div
                     key={p.name}
-                    className="p-3.5 rounded-xl border border-[#e8e7e5] bg-[#fafaf9] hover:bg-white hover:border-[#084ab8] transition-all space-y-1.5"
+                    onClick={() => onNavigateTab('leads', { productFilter: p.name })}
+                    className="p-3.5 rounded-xl border border-[#e8e7e5] bg-[#fafaf9] hover:bg-white hover:border-[#084ab8] transition-all space-y-1.5 cursor-pointer shadow-2xs hover:shadow-xs"
+                    title={`View leads interested in ${p.name}`}
                   >
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
@@ -448,10 +470,12 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             </div>
             <div>
               <h3 className="text-base font-bold text-[#084ab8]">
-                Sales Representatives Performance
+                {isManagerOrAdmin ? 'Sales Representatives Performance' : 'My Sales Performance'}
               </h3>
               <p className="text-xs text-[#646260]">
-                Institutional outreach, school visits, curriculum demos, and closed agreements by representative
+                {isManagerOrAdmin
+                  ? 'Institutional outreach, school visits, curriculum demos, and closed agreements by representative'
+                  : 'Your institutional outreach, school visits, curriculum demos, and closed agreements'}
               </p>
             </div>
           </div>
@@ -477,6 +501,31 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 {m.label}
               </button>
             ))}
+
+            {repMetric !== 'all' && (
+              <button
+                type="button"
+                onClick={() => {
+                  if (repMetric === 'demos') {
+                    const demoStage = stages.find(s => s.name.toLowerCase().includes('demo') || s.id === 'stage-4');
+                    onNavigateTab('leads', { stageFilter: demoStage?.id || 'stage-4' });
+                  } else if (repMetric === 'visits') {
+                    const visitStage = stages.find(s => s.name.toLowerCase().includes('visit') || s.id === 'stage-3');
+                    onNavigateTab('leads', { stageFilter: visitStage?.id || 'stage-3' });
+                  } else if (repMetric === 'agreements') {
+                    const agreementStage = stages.find(s => s.name.toLowerCase().includes('agreement') || s.id === 'stage-7');
+                    onNavigateTab('leads', { stageFilter: agreementStage?.id || 'stage-7' });
+                  } else if (repMetric === 'leads') {
+                    onNavigateTab('leads', {});
+                  }
+                }}
+                className="px-2.5 py-1 text-[11px] font-bold text-[#084ab8] bg-[#eef4ff] hover:bg-[#dbe7ff] rounded-lg border border-[#084ab8]/20 transition-colors cursor-pointer ml-1 flex items-center gap-1"
+                title={`Open filtered leads for ${repMetric}`}
+              >
+                <span>View all {repMetric === 'demos' ? `${demos} Demos` : repMetric === 'visits' ? `${visits} Visits` : repMetric === 'agreements' ? `${agreements} Agreements` : `${totalLeads} Leads`}</span>
+                <ArrowRight className="w-3 h-3" />
+              </button>
+            )}
           </div>
         </div>
 
@@ -550,10 +599,55 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                       <td className="py-3 px-4 font-bold text-[#084ab8]">{r.name}</td>
                       <td className="py-3 px-4 text-[#646260]">{r.employeeId}</td>
                       <td className="py-3 px-4 text-[#2d2b2a]">{r.location}</td>
-                      <td className="py-3 px-4 font-semibold text-[#084ab8]">{r.totalLeads}</td>
-                      <td className="py-3 px-4 text-[#2d2b2a]">{r.visits}</td>
-                      <td className="py-3 px-4 text-[#3c75db] font-semibold">{r.demos}</td>
-                      <td className="py-3 px-4 font-bold text-[#f28705]">{r.agreementsWon}</td>
+                      <td className="py-3 px-4">
+                        <button
+                          type="button"
+                          onClick={() => onNavigateTab('leads', { repFilter: r.id })}
+                          className="font-semibold text-[#084ab8] hover:underline cursor-pointer"
+                          title={`View ${r.name}'s assigned leads`}
+                        >
+                          {r.totalLeads}
+                        </button>
+                      </td>
+                      <td className="py-3 px-4">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const visitStage = stages.find(s => s.name.toLowerCase().includes('visit') || s.id === 'stage-3');
+                            onNavigateTab('leads', { repFilter: r.id, stageFilter: visitStage?.id || 'stage-3' });
+                          }}
+                          className="text-[#2d2b2a] hover:text-[#084ab8] hover:underline font-semibold cursor-pointer"
+                          title={`View ${r.name}'s school visit leads`}
+                        >
+                          {r.visits}
+                        </button>
+                      </td>
+                      <td className="py-3 px-4">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const demoStage = stages.find(s => s.name.toLowerCase().includes('demo') || s.id === 'stage-4');
+                            onNavigateTab('leads', { repFilter: r.id, stageFilter: demoStage?.id || 'stage-4' });
+                          }}
+                          className="text-[#3c75db] hover:text-[#084ab8] hover:underline font-bold cursor-pointer"
+                          title={`View ${r.name}'s demo leads`}
+                        >
+                          {r.demos}
+                        </button>
+                      </td>
+                      <td className="py-3 px-4">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const agreementStage = stages.find(s => s.name.toLowerCase().includes('agreement') || s.id === 'stage-7');
+                            onNavigateTab('leads', { repFilter: r.id, stageFilter: agreementStage?.id || 'stage-7' });
+                          }}
+                          className="font-bold text-[#f28705] hover:text-[#b85c00] hover:underline cursor-pointer"
+                          title={`View ${r.name}'s agreements won`}
+                        >
+                          {r.agreementsWon}
+                        </button>
+                      </td>
                       <td className="py-3 px-4 text-[#646260]">{r.activitiesCompleted}</td>
                       <td className="py-3 px-4">
                         <span className="px-2 py-0.5 rounded-full font-bold bg-[#eef4ff] text-[#084ab8] text-[10px]">
