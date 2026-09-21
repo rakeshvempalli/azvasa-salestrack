@@ -7,8 +7,6 @@ import { NavTab } from './Sidebar';
 interface HeaderProps {
   currentTab: NavTab;
   currentUser: UserProfile;
-  allProfiles: UserProfile[];
-  onSwitchUser: (user: UserProfile) => void;
   onOpenMobileMenu: () => void;
   onOpenNotifications: () => void;
   onTriggerReminders: () => void;
@@ -19,8 +17,6 @@ interface HeaderProps {
 export const Header: React.FC<HeaderProps> = ({
   currentTab,
   currentUser,
-  allProfiles,
-  onSwitchUser,
   onOpenMobileMenu,
   onOpenNotifications,
   onTriggerReminders,
@@ -73,36 +69,24 @@ export const Header: React.FC<HeaderProps> = ({
 
       {/* Right section: Controls & Profile */}
       <div className="flex items-center gap-2 md:gap-3">
-        {/* Quick Role / User Switcher for seamless testing */}
-        <div className="hidden lg:flex items-center gap-1.5 px-2 py-1 rounded-xl bg-[#f3f2f1] border border-[#e8e7e5] text-[11px]">
-          <span className="text-[#646260] font-medium flex items-center gap-1">
-            {currentUser.role === 'super_admin' ? (
-              <ShieldCheck className="w-3.5 h-3.5 text-[#084ab8]" />
-            ) : currentUser.role === 'sales_manager' ? (
-              <Briefcase className="w-3.5 h-3.5 text-[#7c3aed]" />
-            ) : (
-              <UserCheck className="w-3.5 h-3.5 text-[#f28705]" />
-            )}
-            Role:
-          </span>
-          <select
-            value={currentUser.id}
-            onChange={(e) => {
-              const selected = allProfiles.find(p => p.id === e.target.value);
-              if (selected) onSwitchUser(selected);
-            }}
-            className="bg-white border border-[#e8e7e5] rounded-md px-2 py-0.5 text-xs font-semibold text-[#2d2b2a] focus:outline-none focus:border-[#084ab8]"
-          >
-            {allProfiles.map(profile => (
-              <option key={profile.id} value={profile.id}>
-                {profile.role === 'super_admin'
-                  ? `[Super Admin] ${profile.full_name}`
-                  : profile.role === 'sales_manager'
-                  ? `[Manager] ${profile.full_name}`
-                  : `[Rep] ${profile.full_name}`}
-              </option>
-            ))}
-          </select>
+        {/* Verified Active Account Role Badge (Read-Only Security Indicator) */}
+        <div className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#fafaf9] border border-[#e8e7e5] text-[11px]">
+          {currentUser.role === 'super_admin' ? (
+            <span className="flex items-center gap-1.5 font-bold text-[#084ab8]">
+              <ShieldCheck className="w-4 h-4 text-[#084ab8]" />
+              Super Admin
+            </span>
+          ) : currentUser.role === 'sales_manager' ? (
+            <span className="flex items-center gap-1.5 font-bold text-[#084ab8]">
+              <Briefcase className="w-4 h-4 text-[#084ab8]" />
+              Sales Manager
+            </span>
+          ) : (
+            <span className="flex items-center gap-1.5 font-bold text-[#b85c00]">
+              <UserCheck className="w-4 h-4 text-[#f28705]" />
+              Sales Representative
+            </span>
+          )}
         </div>
 
         {/* Automated Reminders Trigger button */}

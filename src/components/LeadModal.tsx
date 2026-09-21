@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Lead, PipelineStage, UserProfile, LeadSource, ProductType } from '../types';
+import { Lead, PipelineStage, UserProfile, LeadSource, ProductType, INDIAN_STATES_AND_UTS } from '../types';
 import { X, AlertCircle, Building2, User, Phone, MapPin, Briefcase, Zap } from 'lucide-react';
 
 interface LeadModalProps {
@@ -30,6 +30,7 @@ export const LeadModal: React.FC<LeadModalProps> = ({
   // Form states
   const [schoolName, setSchoolName] = useState(existingLead?.school_name || '');
   const [location, setLocation] = useState(existingLead?.location || '');
+  const [stateName, setStateName] = useState(existingLead?.state || 'Karnataka');
   const [pocName, setPocName] = useState(existingLead?.poc_name || '');
   const [pocDesignation, setPocDesignation] = useState(existingLead?.poc_designation || '');
   const [pocContact, setPocContact] = useState(existingLead?.poc_contact || '');
@@ -52,7 +53,8 @@ export const LeadModal: React.FC<LeadModalProps> = ({
     const samples = [
       {
         school: 'Heritage International Academy',
-        loc: 'Indiranagar, Bengaluru, Karnataka',
+        loc: 'Indiranagar, Bengaluru',
+        state: 'Karnataka',
         poc: 'Dr. Sunita Rao',
         desig: 'Director of Academics',
         contact: '+91 98451 22334 / s.rao@heritage-academy.edu.in',
@@ -63,7 +65,8 @@ export const LeadModal: React.FC<LeadModalProps> = ({
       },
       {
         school: 'Oakridge Global High School',
-        loc: 'Gachibowli, Hyderabad, Telangana',
+        loc: 'Gachibowli, Hyderabad',
+        state: 'Telangana',
         poc: 'Fr. Thomas Mathew',
         desig: 'Principal',
         contact: '+91 98452 77889 / principal@oakridge-global.in',
@@ -75,7 +78,8 @@ export const LeadModal: React.FC<LeadModalProps> = ({
       },
       {
         school: 'Delhi Public Grammar School',
-        loc: 'Vijay Nagar, Indore, Madhya Pradesh',
+        loc: 'Vijay Nagar, Indore',
+        state: 'Madhya Pradesh',
         poc: 'Mrs. Meenakshi Sundaram',
         desig: 'Vice Principal',
         contact: '+91 98453 55667 / vp@dpgs-indore.ac.in',
@@ -88,6 +92,7 @@ export const LeadModal: React.FC<LeadModalProps> = ({
     const picked = samples[Math.floor(Math.random() * samples.length)];
     setSchoolName(picked.school);
     setLocation(picked.loc);
+    setStateName(picked.state);
     setPocName(picked.poc);
     setPocDesignation(picked.desig);
     setPocContact(picked.contact);
@@ -102,7 +107,8 @@ export const LeadModal: React.FC<LeadModalProps> = ({
   const validate = () => {
     const errs: Record<string, string> = {};
     if (!schoolName.trim()) errs.schoolName = 'School Name is required';
-    if (!location.trim()) errs.location = 'Location is required';
+    if (!location.trim()) errs.location = 'Location / City is required';
+    if (!stateName.trim()) errs.stateName = 'State is required';
     if (!pocName.trim()) errs.pocName = 'POC Name is required';
     if (!pocDesignation.trim()) errs.pocDesignation = 'POC Designation is required';
     if (!pocContact.trim()) errs.pocContact = 'POC Contact phone/email is required';
@@ -133,6 +139,7 @@ export const LeadModal: React.FC<LeadModalProps> = ({
     onSubmit({
       school_name: schoolName.trim(),
       location: location.trim(),
+      state: stateName.trim() || undefined,
       poc_name: pocName.trim(),
       poc_designation: pocDesignation.trim(),
       poc_contact: pocContact.trim(),
@@ -199,14 +206,14 @@ export const LeadModal: React.FC<LeadModalProps> = ({
             <span className="text-[11px] font-bold uppercase tracking-wider text-[#084ab8] block mb-2">
               1. Institution Details
             </span>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-              <div>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
+              <div className="sm:col-span-1">
                 <label className="block text-xs font-semibold text-[#2d2b2a] mb-1">
                   School Name <span className="text-[#f28705]">*</span>
                 </label>
                 <input
                   type="text"
-                  placeholder="e.g. Delhi Public School, Bangalore"
+                  placeholder="e.g. Delhi Public School"
                   value={schoolName}
                   onChange={(e) => setSchoolName(e.target.value)}
                   className={`w-full px-3 py-2 text-xs border rounded-xl bg-white focus:outline-none focus:border-[#084ab8] ${
@@ -230,6 +237,27 @@ export const LeadModal: React.FC<LeadModalProps> = ({
                   }`}
                 />
                 {errors.location && <p className="text-[10px] text-[#b85c00] mt-1">{errors.location}</p>}
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-[#2d2b2a] mb-1">
+                  State / UT <span className="text-[#f28705]">*</span>
+                </label>
+                <select
+                  value={stateName}
+                  onChange={(e) => setStateName(e.target.value)}
+                  className={`w-full px-3 py-2 text-xs border rounded-xl bg-white focus:outline-none focus:border-[#084ab8] ${
+                    errors.stateName ? 'border-[#b85c00] bg-[#fff4e6]' : 'border-[#e8e7e5]'
+                  }`}
+                >
+                  <option value="">-- Select State / UT --</option>
+                  {INDIAN_STATES_AND_UTS.map((st) => (
+                    <option key={st} value={st}>
+                      {st}
+                    </option>
+                  ))}
+                </select>
+                {errors.stateName && <p className="text-[10px] text-[#b85c00] mt-1">{errors.stateName}</p>}
               </div>
             </div>
           </div>

@@ -56,6 +56,21 @@ interface ServerUser {
   updated_at?: string;
 }
 
+function cleanForFirestore(data: any): any {
+  if (!data || typeof data !== 'object') return data;
+  const cleaned: Record<string, any> = {};
+  for (const [key, value] of Object.entries(data)) {
+    if (value !== undefined) {
+      if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
+        cleaned[key] = cleanForFirestore(value);
+      } else {
+        cleaned[key] = value;
+      }
+    }
+  }
+  return cleaned;
+}
+
 // Initial fallback users
 const DEFAULT_USERS: ServerUser[] = [
   {
@@ -471,7 +486,7 @@ app.post('/api/leads', async (req, res) => {
   const lead = req.body;
   if (!lead || !lead.id) return res.status(400).json({ error: 'Valid lead object is required' });
   try {
-    await setDoc(doc(db, 'leads', lead.id), lead, { merge: true });
+    await setDoc(doc(db, 'leads', lead.id), cleanForFirestore(lead), { merge: true });
   } catch (err) {
     console.error('Failed writing lead to Firestore:', err);
   }
@@ -485,7 +500,7 @@ app.put('/api/leads/:id', async (req, res) => {
   const { id } = req.params;
   const updates = req.body;
   try {
-    await setDoc(doc(db, 'leads', id), updates, { merge: true });
+    await setDoc(doc(db, 'leads', id), cleanForFirestore(updates), { merge: true });
   } catch (err) {
     console.error('Failed updating lead in Firestore:', err);
   }

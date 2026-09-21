@@ -131,15 +131,6 @@ export default function App() {
     setCurrentUserState(null);
   };
 
-  const handleSwitchUser = (user: UserProfile) => {
-    setCurrentUser(user);
-    setCurrentUserState(user);
-    // If switching to rep, restrict admin tabs
-    if (user.role !== 'super_admin' && currentTab.startsWith('admin-')) {
-      setCurrentTab('dashboard');
-    }
-  };
-
   // Automated Reminders Scan Action & Notification Sync
   const handleTriggerReminders = () => {
     syncFollowupNotifications('2026-09-19');
@@ -517,8 +508,6 @@ export default function App() {
         <Header
           currentTab={currentTab}
           currentUser={currentUser}
-          allProfiles={reps}
-          onSwitchUser={handleSwitchUser}
           onOpenMobileMenu={() => setMobileMenuOpen(true)}
           onOpenNotifications={() => setNotificationsOpen(true)}
           onTriggerReminders={handleTriggerReminders}

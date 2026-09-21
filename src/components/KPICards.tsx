@@ -53,22 +53,6 @@ export const KPICards: React.FC<KPICardsProps> = ({ data, isSuperAdmin, onFilter
         ]
       : []),
     {
-      id: 'today',
-      label: 'Follow-ups Today',
-      value: data.followupsToday,
-      icon: CalendarCheck,
-      color: 'orange',
-      subtitle: 'Priority calls/meetings'
-    },
-    {
-      id: 'upcoming',
-      label: 'Upcoming Follow-ups',
-      value: data.upcomingFollowups,
-      icon: CalendarClock,
-      color: 'blue',
-      subtitle: 'Scheduled next 7 days'
-    },
-    {
       id: 'overdue',
       label: 'Overdue Follow-ups',
       value: data.overdueFollowups,
@@ -91,14 +75,6 @@ export const KPICards: React.FC<KPICardsProps> = ({ data, isSuperAdmin, onFilter
       icon: Tv,
       color: 'orange',
       subtitle: 'IntelliRead/LMS demos'
-    },
-    {
-      id: 'proposals',
-      label: 'Proposals',
-      value: data.proposals,
-      icon: FileText,
-      color: 'blue',
-      subtitle: 'Commercial shared'
     },
     {
       id: 'agreements',

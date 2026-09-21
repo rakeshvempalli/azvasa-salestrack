@@ -107,6 +107,25 @@ export const COLLECTIONS = {
   SETTINGS: 'settings'
 };
 
+/**
+ * Strips undefined values from objects before writing to Firestore.
+ * Firestore client library throws an error if any field is undefined.
+ */
+export function cleanForFirestore<T extends Record<string, any>>(data: T): Record<string, any> {
+  if (!data || typeof data !== 'object') return data;
+  const cleaned: Record<string, any> = {};
+  for (const [key, value] of Object.entries(data)) {
+    if (value !== undefined) {
+      if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
+        cleaned[key] = cleanForFirestore(value);
+      } else {
+        cleaned[key] = value;
+      }
+    }
+  }
+  return cleaned;
+}
+
 /* =========================================================================
    1. USERS & AUTHENTICATION (Centralized Database)
    ========================================================================= */
@@ -193,7 +212,7 @@ export function subscribeToDatabaseUsers(onUpdate: (users: UserProfile[]) => voi
 export async function saveUserToDatabase(user: UserProfile): Promise<void> {
   try {
     const docRef = doc(db, COLLECTIONS.USERS, user.id);
-    await setDoc(docRef, user, { merge: true });
+    await setDoc(docRef, cleanForFirestore(user), { merge: true });
   } catch (err) {
     handleFirestoreError(err, OperationType.WRITE, `${COLLECTIONS.USERS}/${user.id}`);
     throw err;
@@ -316,7 +335,7 @@ export function subscribeToDatabaseStages(onUpdate: (stages: PipelineStage[]) =>
 
 export async function saveStageToDatabase(stage: PipelineStage): Promise<void> {
   try {
-    await setDoc(doc(db, COLLECTIONS.STAGES, stage.id), stage, { merge: true });
+    await setDoc(doc(db, COLLECTIONS.STAGES, stage.id), cleanForFirestore(stage), { merge: true });
   } catch (err) {
     handleFirestoreError(err, OperationType.WRITE, `${COLLECTIONS.STAGES}/${stage.id}`);
     throw err;
@@ -370,7 +389,7 @@ export function subscribeToDatabaseLeads(onUpdate: (leads: Lead[]) => void): () 
 
 export async function saveLeadToDatabase(lead: Lead): Promise<void> {
   try {
-    await setDoc(doc(db, COLLECTIONS.LEADS, lead.id), lead, { merge: true });
+    await setDoc(doc(db, COLLECTIONS.LEADS, lead.id), cleanForFirestore(lead), { merge: true });
   } catch (err) {
     handleFirestoreError(err, OperationType.WRITE, `${COLLECTIONS.LEADS}/${lead.id}`);
     throw err;
@@ -424,7 +443,7 @@ export function subscribeToDatabaseInteractions(onUpdate: (interactions: Interac
 
 export async function saveInteractionToDatabase(interaction: Interaction): Promise<void> {
   try {
-    await setDoc(doc(db, COLLECTIONS.INTERACTIONS, interaction.id), interaction, { merge: true });
+    await setDoc(doc(db, COLLECTIONS.INTERACTIONS, interaction.id), cleanForFirestore(interaction), { merge: true });
   } catch (err) {
     handleFirestoreError(err, OperationType.WRITE, `${COLLECTIONS.INTERACTIONS}/${interaction.id}`);
     throw err;
@@ -478,7 +497,7 @@ export function subscribeToDatabaseStageHistory(onUpdate: (history: StageHistory
 
 export async function saveStageHistoryToDatabase(entry: StageHistory): Promise<void> {
   try {
-    await setDoc(doc(db, COLLECTIONS.STAGE_HISTORY, entry.id), entry, { merge: true });
+    await setDoc(doc(db, COLLECTIONS.STAGE_HISTORY, entry.id), cleanForFirestore(entry), { merge: true });
   } catch (err) {
     handleFirestoreError(err, OperationType.WRITE, `${COLLECTIONS.STAGE_HISTORY}/${entry.id}`);
     throw err;
@@ -523,7 +542,7 @@ export function subscribeToDatabaseNotes(onUpdate: (notes: InternalNote[]) => vo
 
 export async function saveNoteToDatabase(note: InternalNote): Promise<void> {
   try {
-    await setDoc(doc(db, COLLECTIONS.NOTES, note.id), note, { merge: true });
+    await setDoc(doc(db, COLLECTIONS.NOTES, note.id), cleanForFirestore(note), { merge: true });
   } catch (err) {
     handleFirestoreError(err, OperationType.WRITE, `${COLLECTIONS.NOTES}/${note.id}`);
     throw err;
@@ -577,7 +596,7 @@ export function subscribeToDatabaseTasks(onUpdate: (tasks: FollowupTask[]) => vo
 
 export async function saveTaskToDatabase(task: FollowupTask): Promise<void> {
   try {
-    await setDoc(doc(db, COLLECTIONS.TASKS, task.id), task, { merge: true });
+    await setDoc(doc(db, COLLECTIONS.TASKS, task.id), cleanForFirestore(task), { merge: true });
   } catch (err) {
     handleFirestoreError(err, OperationType.WRITE, `${COLLECTIONS.TASKS}/${task.id}`);
     throw err;
@@ -631,7 +650,7 @@ export function subscribeToDatabaseNotifications(onUpdate: (notifs: AppNotificat
 
 export async function saveNotificationToDatabase(notif: AppNotification): Promise<void> {
   try {
-    await setDoc(doc(db, COLLECTIONS.NOTIFICATIONS, notif.id), notif, { merge: true });
+    await setDoc(doc(db, COLLECTIONS.NOTIFICATIONS, notif.id), cleanForFirestore(notif), { merge: true });
   } catch (err) {
     handleFirestoreError(err, OperationType.WRITE, `${COLLECTIONS.NOTIFICATIONS}/${notif.id}`);
     throw err;
@@ -685,7 +704,7 @@ export function subscribeToDatabaseAuditLogs(onUpdate: (logs: AuditLog[]) => voi
 
 export async function saveAuditLogToDatabase(log: AuditLog): Promise<void> {
   try {
-    await setDoc(doc(db, COLLECTIONS.AUDIT_LOGS, log.id), log, { merge: true });
+    await setDoc(doc(db, COLLECTIONS.AUDIT_LOGS, log.id), cleanForFirestore(log), { merge: true });
   } catch (err) {
     handleFirestoreError(err, OperationType.WRITE, `${COLLECTIONS.AUDIT_LOGS}/${log.id}`);
     throw err;
@@ -730,7 +749,7 @@ export function subscribeToDatabaseReminderLogs(onUpdate: (logs: ReminderLog[]) 
 
 export async function saveReminderLogToDatabase(log: ReminderLog): Promise<void> {
   try {
-    await setDoc(doc(db, COLLECTIONS.REMINDER_LOGS, log.id), log, { merge: true });
+    await setDoc(doc(db, COLLECTIONS.REMINDER_LOGS, log.id), cleanForFirestore(log), { merge: true });
   } catch (err) {
     handleFirestoreError(err, OperationType.WRITE, `${COLLECTIONS.REMINDER_LOGS}/${log.id}`);
     throw err;
@@ -758,7 +777,7 @@ export async function fetchSettingsFromDatabase(): Promise<SystemSetting[]> {
 
 export async function saveSettingToDatabase(setting: SystemSetting): Promise<void> {
   try {
-    await setDoc(doc(db, COLLECTIONS.SETTINGS, setting.id), setting, { merge: true });
+    await setDoc(doc(db, COLLECTIONS.SETTINGS, setting.id), cleanForFirestore(setting), { merge: true });
   } catch (err) {
     handleFirestoreError(err, OperationType.WRITE, `${COLLECTIONS.SETTINGS}/${setting.id}`);
     throw err;

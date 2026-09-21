@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { UserProfile, Lead, PipelineStage, Interaction, KPIData } from '../types';
 import { KPICards } from './KPICards';
 import { PipelineView } from './PipelineView';
@@ -12,21 +12,22 @@ import {
   PieChart,
   Pie,
   Cell,
-  AreaChart,
-  Area
+  Legend,
+  CartesianGrid
 } from 'recharts';
 import {
-  Clock,
-  CalendarCheck,
+  MapPin,
+  Package,
+  Award,
+  TrendingUp,
+  Plus,
+  Users,
+  Building2,
+  CheckCircle2,
   AlertTriangle,
   ArrowRight,
-  School,
-  User,
-  Phone,
-  Tag,
-  History,
-  TrendingUp,
-  Plus
+  ShieldAlert,
+  Briefcase
 } from 'lucide-react';
 
 interface DashboardViewProps {
@@ -53,102 +54,133 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   onOpenAddInteraction
 }) => {
   const isSuperAdmin = currentUser.role === 'super_admin';
+  const isSalesManager = currentUser.role === 'sales_manager';
+  const isManagerOrAdmin = isSuperAdmin || isSalesManager;
   const currentDateStr = '2026-09-19';
 
-  // Filter leads based on role
-  const visibleLeads = isSuperAdmin 
+  // Leads visible on dashboard: Admins & Managers see all centralized leads; Reps see their assigned leads
+  const visibleLeads = isManagerOrAdmin 
     ? leads 
     : leads.filter(l => l.assigned_rep_id === currentUser.id);
 
-  // Compute KPI metrics from actual database data
+  // Compute KPI metrics (Without removed sections: Follow-up Today, Upcoming Follow-ups, Proposals)
   const totalLeads = visibleLeads.length;
   const activeLeads = visibleLeads.filter(l => l.current_stage_name !== 'Not Interested').length;
-  
-  const followupsToday = visibleLeads.filter(l => l.next_action_date === currentDateStr).length;
-  const upcomingFollowups = visibleLeads.filter(
-    l => l.next_action_date && l.next_action_date > currentDateStr
-  ).length;
   const overdueFollowups = visibleLeads.filter(
     l => l.next_action_date && l.next_action_date < currentDateStr && l.current_stage_name !== 'Not Interested'
   ).length;
 
   const visits = visibleLeads.filter(l => l.current_stage_name === 'Visit').length;
   const demos = visibleLeads.filter(l => l.current_stage_name === 'Demo Stage').length;
-  const proposals = visibleLeads.filter(l => l.current_stage_name === 'Proposal Shared').length;
   const agreements = visibleLeads.filter(l => l.current_stage_name === 'Agreement Stage').length;
 
   const kpiData: KPIData = {
     totalLeads,
     activeLeads,
-    followupsToday,
-    upcomingFollowups,
     overdueFollowups,
     visits,
     demos,
-    proposals,
     agreements,
-    salesRepsCount: isSuperAdmin ? reps.filter(r => r.role === 'sales_rep').length : undefined
+    salesRepsCount: isManagerOrAdmin ? reps.filter(r => r.role === 'sales_rep').length : undefined
   };
-
-  // Today's Follow-ups list
-  const todaysFollowupLeads = visibleLeads.filter(l => l.next_action_date === currentDateStr);
 
   // Overdue leads
   const overdueLeads = visibleLeads.filter(
     l => l.next_action_date && l.next_action_date < currentDateStr && l.current_stage_name !== 'Not Interested'
   );
 
-  // Recent interactions
-  const recentInteractions = isSuperAdmin
-    ? interactions.slice(0, 5)
-    : interactions.filter(i => i.created_by_id === currentUser.id).slice(0, 5);
+  // AZVASA Brand Color Palette
+  const BRAND_COLORS = ['#084ab8', '#f28705', '#2d2b2a', '#3c75db', '#ffa742', '#06378a', '#b85c00', '#646260'];
 
-  // Chart data for Super Admin (using brand colors only)
-  const BRAND_COLORS = ['#084ab8', '#f28705', '#646260', '#06378a', '#b85c00', '#3c75db', '#ffa742', '#8e8b88'];
-
-  // 1. Leads by Stage
-  const stageData = stages
-    .filter(s => s.active)
-    .map(stage => {
-      const count = visibleLeads.filter(l => l.current_stage_id === stage.id || l.current_stage_name === stage.name).length;
-      return {
-        name: stage.name,
-        count
-      };
-    });
-
-  // 2. Leads by Product
-  const productCounts: Record<string, number> = {};
-  visibleLeads.forEach(l => {
-    productCounts[l.product] = (productCounts[l.product] || 0) + 1;
+  // 1. STATE-WISE LEADS CALCULATION (Dynamic from Centralized DB)
+  const stateCounts: Record<string, { total: number; active: number; converted: number }> = {};
+  visibleLeads.forEach(lead => {
+    const stateKey = lead.state || 'Unassigned State';
+    if (!stateCounts[stateKey]) {
+      stateCounts[stateKey] = { total: 0, active: 0, converted: 0 };
+    }
+    stateCounts[stateKey].total += 1;
+    if (lead.current_stage_name !== 'Not Interested') {
+      stateCounts[stateKey].active += 1;
+    }
+    if (lead.current_stage_name === 'Agreement Stage' || lead.current_stage_id === 'stage-7') {
+      stateCounts[stateKey].converted += 1;
+    }
   });
-  const productData = Object.entries(productCounts).map(([name, value]) => ({ name, value }));
 
-  // 3. Leads by Source
-  const sourceCounts: Record<string, number> = {};
+  const stateChartData = Object.entries(stateCounts)
+    .map(([state, data]) => ({
+      state,
+      leads: data.total,
+      active: data.active,
+      converted: data.converted
+    }))
+    .sort((a, b) => b.leads - a.leads);
+
+  // 2. PRODUCT-WISE LEADS CALCULATION
+  const productCounts: Record<string, { total: number; converted: number }> = {};
   visibleLeads.forEach(l => {
-    sourceCounts[l.lead_source] = (sourceCounts[l.lead_source] || 0) + 1;
+    const prodKey = l.product || 'Others';
+    if (!productCounts[prodKey]) {
+      productCounts[prodKey] = { total: 0, converted: 0 };
+    }
+    productCounts[prodKey].total += 1;
+    if (l.current_stage_name === 'Agreement Stage' || l.current_stage_id === 'stage-7') {
+      productCounts[prodKey].converted += 1;
+    }
   });
-  const sourceData = Object.entries(sourceCounts).map(([name, count]) => ({ name, count }));
 
-  // 4. Leads by Sales Rep
-  const repData = reps
-    .filter(r => r.role === 'sales_rep')
-    .map(rep => {
-      const count = leads.filter(l => l.assigned_rep_id === rep.id).length;
-      return {
-        name: rep.full_name.split(' ')[0],
-        leads: count
-      };
-    });
+  const productChartData = Object.entries(productCounts)
+    .map(([product, data]) => ({
+      name: product,
+      leads: data.total,
+      converted: data.converted,
+      share: visibleLeads.length > 0 ? Math.round((data.total / visibleLeads.length) * 100) : 0
+    }))
+    .sort((a, b) => b.leads - a.leads);
 
-  // 5. Monthly Trend
-  const monthlyData = [
-    { month: 'Jun', leads: 4 },
-    { month: 'Jul', leads: 8 },
-    { month: 'Aug', leads: 14 },
-    { month: 'Sep', leads: visibleLeads.length }
-  ];
+  // 3. SALES REPRESENTATIVES PERFORMANCE CALCULATION
+  const salesRepsList = reps.filter(r => r.role === 'sales_rep');
+  // Fallback to active reps or all team members except super admin if none explicitly marked
+  const displayReps = salesRepsList.length > 0 
+    ? salesRepsList 
+    : reps.filter(r => r.role !== 'super_admin');
+
+  const repPerformanceData = displayReps.map(rep => {
+    const repLeads = leads.filter(l => l.assigned_rep_id === rep.id);
+    const totalLeads = repLeads.length;
+    const visits = repLeads.filter(
+      l => l.current_stage_name === 'Visit' || l.current_stage_id === 'stage-3'
+    ).length;
+    const demos = repLeads.filter(
+      l => l.current_stage_name === 'Demo Stage' || l.current_stage_id === 'stage-4'
+    ).length;
+    const agreementsWon = repLeads.filter(
+      l => l.current_stage_name === 'Agreement Stage' || l.current_stage_id === 'stage-7'
+    ).length;
+    const activitiesCompleted = interactions.filter(i => i.created_by_id === rep.id).length;
+    const conversionRate = totalLeads > 0 ? Math.round((agreementsWon / totalLeads) * 100) : 0;
+
+    const territoryStates = Array.from(new Set(repLeads.map(l => l.state).filter(Boolean))).slice(0, 2).join(', ');
+    const territory = territoryStates || rep.designation || 'Field Territory';
+
+    return {
+      id: rep.id,
+      name: rep.full_name,
+      employeeId: rep.employee_id,
+      designation: rep.designation || 'Sales Representative',
+      location: territory,
+      totalLeads,
+      visits,
+      demos,
+      agreementsWon,
+      activitiesCompleted,
+      conversionRate
+    };
+  });
+
+  // Toggle for representative metric view
+  const [repMetric, setRepMetric] = useState<'all' | 'leads' | 'visits' | 'demos' | 'agreements'>('all');
 
   return (
     <div className="space-y-6 animate-fadeIn pb-12">
@@ -156,15 +188,17 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       <div className="bg-white border border-[#e8e7e5] rounded-2xl p-6 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <span className="text-xs font-bold text-[#f28705] uppercase tracking-wider block mb-1">
-            {isSuperAdmin ? 'AZVASA Enterprise CRM' : 'Sales Representative Workspace'}
+            {isSuperAdmin 
+              ? 'Super Admin Central Control' 
+              : isSalesManager 
+              ? 'Sales Manager Operations Hub' 
+              : 'Sales Representative Workspace'}
           </span>
           <h2 className="text-xl sm:text-2xl font-black text-[#084ab8] tracking-tight">
-            {isSuperAdmin ? 'Executive Sales Overview' : `Good Morning, ${currentUser.full_name}`}
+            Institutional Sales Dashboard
           </h2>
           <p className="text-xs text-[#646260] mt-1">
-            {isSuperAdmin 
-              ? 'Real-time performance across all sales territories, academic pipelines, and partner institutions.'
-              : 'Here is your targeted pipeline activity and priority school follow-ups for today.'}
+            Centralized database sync across all territories, academic products, and sales representative performance
           </p>
         </div>
 
@@ -183,19 +217,17 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       <div>
         <div className="flex items-center justify-between mb-3 px-1">
           <h3 className="text-xs font-bold text-[#646260] uppercase tracking-wider">
-            {isSuperAdmin ? 'Key Performance Metrics' : 'My Sales Overview'}
+            Key Performance Metrics
           </h3>
           <span className="text-[11px] text-[#8e8b88]">
-            Date: 19 September 2026
+            Live Centralized Database
           </span>
         </div>
         <KPICards
           data={kpiData}
-          isSuperAdmin={isSuperAdmin}
+          isSuperAdmin={isManagerOrAdmin}
           onFilterClick={(type) => {
-            if (type === 'today' || type === 'overdue' || type === 'upcoming') {
-              onNavigateTab('followups');
-            } else if (type === 'reps') {
+            if (type === 'reps') {
               onNavigateTab('admin-reps');
             } else {
               onNavigateTab('leads');
@@ -211,316 +243,374 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         onSelectStage={() => onNavigateTab('leads')}
       />
 
-      {/* Two Column Layout: Today's Follow-ups & Priority Action / Overdue */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        
-        {/* Today's Follow-ups Table */}
-        <div className="bg-white border border-[#e8e7e5] rounded-2xl p-5 shadow-xs flex flex-col">
-          <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center gap-2">
-              <div className="p-1.5 rounded-lg bg-[#fff4e6] text-[#f28705]">
-                <CalendarCheck className="w-4 h-4" />
-              </div>
-              <h3 className="text-sm font-bold text-[#084ab8]">
-                Today's Follow-ups ({todaysFollowupLeads.length})
+      {/* SECTION 1: STATE-WISE LEADS GRAPH & BREAKDOWN */}
+      <div className="bg-white border border-[#e8e7e5] rounded-2xl p-6 shadow-xs space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-[#f3f2f1] pb-3">
+          <div className="flex items-center gap-2.5">
+            <div className="p-2 rounded-xl bg-[#eef4ff] text-[#084ab8]">
+              <MapPin className="w-5 h-5" />
+            </div>
+            <div>
+              <h3 className="text-base font-bold text-[#084ab8]">
+                State-wise Leads Distribution
               </h3>
+              <p className="text-xs text-[#646260]">
+                Institutional penetration across Indian States and Union Territories
+              </p>
             </div>
-            <button
-              onClick={() => onNavigateTab('followups')}
-              className="text-xs font-semibold text-[#084ab8] hover:underline flex items-center gap-1"
-            >
-              View All <ArrowRight className="w-3.5 h-3.5" />
-            </button>
           </div>
-
-          {todaysFollowupLeads.length === 0 ? (
-            <div className="p-8 text-center bg-[#fafaf9] rounded-xl border border-dashed border-[#e8e7e5] my-auto">
-              <Clock className="w-8 h-8 text-[#8e8b88] mx-auto mb-2" />
-              <p className="text-xs font-semibold text-[#2d2b2a]">No follow-ups scheduled for today</p>
-              <p className="text-[11px] text-[#646260] mt-0.5">Check upcoming follow-ups or plan next actions.</p>
-            </div>
-          ) : (
-            <div className="space-y-2.5 overflow-y-auto max-h-80 pr-1">
-              {todaysFollowupLeads.map(lead => (
-                <div
-                  key={lead.id}
-                  className="p-3.5 rounded-xl border border-[#e8e7e5] bg-[#fafaf9] hover:bg-white hover:border-[#084ab8] transition-all flex flex-col gap-2"
-                >
-                  <div className="flex items-start justify-between gap-2">
-                    <div>
-                      <h4
-                        onClick={() => onSelectLead(lead)}
-                        className="text-xs font-bold text-[#084ab8] hover:underline cursor-pointer"
-                      >
-                        {lead.school_name}
-                      </h4>
-                      <p className="text-[11px] text-[#646260] mt-0.5">
-                        POC: {lead.poc_name} ({lead.poc_designation}) • {lead.poc_contact}
-                      </p>
-                    </div>
-                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-[#eef4ff] text-[#084ab8] shrink-0 border border-[#084ab8]/20">
-                      {lead.current_stage_name}
-                    </span>
-                  </div>
-
-                  {lead.next_action_remarks && (
-                    <div className="p-2 rounded-lg bg-white border border-[#e8e7e5] text-[11px] text-[#2d2b2a]">
-                      <span className="font-semibold text-[#f28705]">Action: </span>
-                      {lead.next_action_remarks}
-                    </div>
-                  )}
-
-                  <div className="flex items-center justify-between pt-1 border-t border-[#f3f2f1] text-[11px]">
-                    <span className="text-[#646260]">
-                      Rep: <strong className="text-[#2d2b2a]">{lead.assigned_rep_name}</strong>
-                    </span>
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={() => onOpenAddInteraction(lead)}
-                        className="text-[10px] font-semibold px-2.5 py-1 rounded-md bg-[#084ab8] text-white hover:bg-[#06378a]"
-                      >
-                        Log Activity
-                      </button>
-                      <button
-                        onClick={() => onSelectLead(lead)}
-                        className="text-[10px] font-semibold px-2.5 py-1 rounded-md border border-[#084ab8] text-[#084ab8] hover:bg-[#eef4ff]"
-                      >
-                        View Lead
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
+          <span className="text-xs font-semibold px-3 py-1 rounded-full bg-[#fafaf9] text-[#646260] border border-[#e8e7e5] self-start sm:self-auto">
+            {stateChartData.length} States Active
+          </span>
         </div>
 
-        {/* Overdue Follow-ups (Attention Treatment in AZVASA dark orange / gray) */}
-        <div className="bg-white border border-[#e8e7e5] rounded-2xl p-5 shadow-xs flex flex-col">
-          <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center gap-2">
-              <div className="p-1.5 rounded-lg bg-[#fff4e6] text-[#b85c00] border border-[#f28705]/30">
-                <AlertTriangle className="w-4 h-4" />
+        {stateChartData.length === 0 ? (
+          <div className="py-12 text-center bg-[#fafaf9] rounded-xl border border-dashed border-[#e8e7e5]">
+            <MapPin className="w-8 h-8 text-[#8e8b88] mx-auto mb-2" />
+            <p className="text-xs font-semibold text-[#2d2b2a]">No state data recorded yet</p>
+            <p className="text-[11px] text-[#646260] mt-0.5">Add or update leads with their respective State/UT.</p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
+            {/* Horizontal Bar Chart */}
+            <div className="lg:col-span-2 h-72 w-full pt-2">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart
+                  layout="vertical"
+                  data={stateChartData.slice(0, 10)}
+                  margin={{ top: 5, right: 30, left: 40, bottom: 5 }}
+                >
+                  <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#f3f2f1" />
+                  <XAxis type="number" tick={{ fontSize: 11, fill: '#646260' }} />
+                  <YAxis
+                    dataKey="state"
+                    type="category"
+                    tick={{ fontSize: 11, fill: '#2d2b2a', fontWeight: 600 }}
+                    width={110}
+                  />
+                  <Tooltip
+                    formatter={(value: any, name: any) => [
+                      `${value} leads`,
+                      name === 'leads' ? 'Total Leads' : name === 'converted' ? 'Agreements Won' : 'Active Pipeline'
+                    ]}
+                    contentStyle={{
+                      backgroundColor: '#ffffff',
+                      borderColor: '#e8e7e5',
+                      borderRadius: 8,
+                      fontSize: 11
+                    }}
+                  />
+                  <Bar dataKey="leads" fill="#084ab8" radius={[0, 4, 4, 0]} name="Total Leads" barSize={18} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+
+            {/* State Leaderboard Table */}
+            <div className="bg-[#fafaf9] border border-[#e8e7e5] rounded-xl p-4 space-y-3">
+              <span className="text-[11px] font-bold text-[#646260] uppercase tracking-wider block">
+                Territory Breakdown
+              </span>
+              <div className="divide-y divide-[#e8e7e5] max-h-60 overflow-y-auto pr-1">
+                {stateChartData.map((item, idx) => (
+                  <div key={item.state} className="py-2 flex items-center justify-between text-xs">
+                    <div className="flex items-center gap-2">
+                      <span className="w-5 text-[11px] font-bold text-[#8e8b88]">
+                        #{idx + 1}
+                      </span>
+                      <span className="font-semibold text-[#2d2b2a]">{item.state}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="px-2 py-0.5 rounded font-bold bg-[#eef4ff] text-[#084ab8] text-[11px]">
+                        {item.leads} leads
+                      </span>
+                      {item.converted > 0 && (
+                        <span className="px-1.5 py-0.5 rounded font-semibold bg-[#fff4e6] text-[#b85c00] text-[10px]">
+                          {item.converted} won
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                ))}
               </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* SECTION 2: PRODUCT-WISE GRAPH & BREAKDOWN */}
+      <div className="bg-white border border-[#e8e7e5] rounded-2xl p-6 shadow-xs space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-[#f3f2f1] pb-3">
+          <div className="flex items-center gap-2.5">
+            <div className="p-2 rounded-xl bg-[#fff4e6] text-[#f28705]">
+              <Package className="w-5 h-5" />
+            </div>
+            <div>
+              <h3 className="text-base font-bold text-[#084ab8]">
+                Product-wise Leads Breakdown
+              </h3>
+              <p className="text-xs text-[#646260]">
+                Curriculum solution adoption and demand across school prospects
+              </p>
+            </div>
+          </div>
+          <span className="text-xs font-semibold px-3 py-1 rounded-full bg-[#fafaf9] text-[#646260] border border-[#e8e7e5] self-start sm:self-auto">
+            {productChartData.length} Solutions Tracked
+          </span>
+        </div>
+
+        {productChartData.length === 0 ? (
+          <div className="py-12 text-center bg-[#fafaf9] rounded-xl border border-dashed border-[#e8e7e5]">
+            <Package className="w-8 h-8 text-[#8e8b88] mx-auto mb-2" />
+            <p className="text-xs font-semibold text-[#2d2b2a]">No product leads logged</p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-center">
+            {/* Donut Chart */}
+            <div className="h-64 w-full flex items-center justify-center">
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie
+                    data={productChartData}
+                    dataKey="leads"
+                    nameKey="name"
+                    cx="50%"
+                    cy="50%"
+                    outerRadius={80}
+                    innerRadius={45}
+                    paddingAngle={3}
+                  >
+                    {productChartData.map((_, index) => (
+                      <Cell key={`cell-${index}`} fill={BRAND_COLORS[index % BRAND_COLORS.length]} />
+                    ))}
+                  </Pie>
+                  <Tooltip
+                    formatter={(value: any, name: any) => [`${value} leads`, name]}
+                    contentStyle={{
+                      backgroundColor: '#ffffff',
+                      borderColor: '#e8e7e5',
+                      borderRadius: 8,
+                      fontSize: 11
+                    }}
+                  />
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
+
+            {/* Product Performance Bar Chart */}
+            <div className="lg:col-span-2 space-y-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {productChartData.map((p, idx) => (
+                  <div
+                    key={p.name}
+                    className="p-3.5 rounded-xl border border-[#e8e7e5] bg-[#fafaf9] hover:bg-white hover:border-[#084ab8] transition-all space-y-1.5"
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span
+                          className="w-3 h-3 rounded-full shrink-0"
+                          style={{ backgroundColor: BRAND_COLORS[idx % BRAND_COLORS.length] }}
+                        />
+                        <h4 className="text-xs font-bold text-[#2d2b2a]">{p.name}</h4>
+                      </div>
+                      <span className="text-xs font-bold text-[#084ab8]">{p.leads} leads</span>
+                    </div>
+
+                    <div className="w-full bg-[#e8e7e5] h-1.5 rounded-full overflow-hidden">
+                      <div
+                        className="h-full rounded-full transition-all"
+                        style={{
+                          width: `${p.share}%`,
+                          backgroundColor: BRAND_COLORS[idx % BRAND_COLORS.length]
+                        }}
+                      />
+                    </div>
+
+                    <div className="flex items-center justify-between text-[10px] text-[#646260] pt-0.5">
+                      <span>{p.share}% market share</span>
+                      {p.converted > 0 && (
+                        <span className="font-semibold text-[#f28705]">{p.converted} agreements</span>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* SECTION 3: SALES REPRESENTATIVES PERFORMANCE GRAPH & COMPARISON */}
+      <div className="bg-white border border-[#e8e7e5] rounded-2xl p-6 shadow-xs space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-[#f3f2f1] pb-3">
+          <div className="flex items-center gap-2.5">
+            <div className="p-2 rounded-xl bg-[#eef4ff] text-[#084ab8]">
+              <Award className="w-5 h-5" />
+            </div>
+            <div>
+              <h3 className="text-base font-bold text-[#084ab8]">
+                Sales Representatives Performance
+              </h3>
+              <p className="text-xs text-[#646260]">
+                Institutional outreach, school visits, curriculum demos, and closed agreements by representative
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-1.5 self-start sm:self-auto flex-wrap">
+            {[
+              { id: 'all', label: 'All Metrics' },
+              { id: 'leads', label: 'Leads' },
+              { id: 'visits', label: 'Visits' },
+              { id: 'demos', label: 'Demos' },
+              { id: 'agreements', label: 'Agreements' }
+            ].map((m) => (
+              <button
+                key={m.id}
+                type="button"
+                onClick={() => setRepMetric(m.id as any)}
+                className={`px-2.5 py-1 text-[11px] font-semibold rounded-lg capitalize transition-colors cursor-pointer ${
+                  repMetric === m.id
+                    ? 'bg-[#084ab8] text-white'
+                    : 'bg-[#f3f2f1] text-[#646260] hover:text-[#2d2b2a]'
+                }`}
+              >
+                {m.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {repPerformanceData.length === 0 ? (
+          <div className="py-12 text-center bg-[#fafaf9] rounded-xl border border-dashed border-[#e8e7e5]">
+            <Users className="w-8 h-8 text-[#8e8b88] mx-auto mb-2" />
+            <p className="text-xs font-semibold text-[#2d2b2a]">No Sales Representatives registered</p>
+            <p className="text-[11px] text-[#646260] mt-0.5">
+              Add or assign Sales Representatives in User Management to track field sales performance.
+            </p>
+          </div>
+        ) : (
+          <div className="space-y-6">
+            {/* Performance Comparison Bar Chart */}
+            <div className="h-64 w-full pt-2">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart
+                  data={repPerformanceData}
+                  margin={{ top: 10, right: 20, left: -10, bottom: 20 }}
+                >
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f3f2f1" />
+                  <XAxis
+                    dataKey="name"
+                    tick={{ fontSize: 11, fill: '#2d2b2a', fontWeight: 600 }}
+                  />
+                  <YAxis tick={{ fontSize: 10, fill: '#646260' }} />
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: '#ffffff',
+                      borderColor: '#e8e7e5',
+                      borderRadius: 8,
+                      fontSize: 11
+                    }}
+                  />
+                  <Legend wrapperStyle={{ fontSize: 11, paddingTop: 10 }} />
+                  {(repMetric === 'all' || repMetric === 'leads') && (
+                    <Bar dataKey="totalLeads" fill="#084ab8" name="Assigned Leads" radius={[4, 4, 0, 0]} />
+                  )}
+                  {(repMetric === 'all' || repMetric === 'visits') && (
+                    <Bar dataKey="visits" fill="#2d2b2a" name="School Visits" radius={[4, 4, 0, 0]} />
+                  )}
+                  {(repMetric === 'all' || repMetric === 'demos') && (
+                    <Bar dataKey="demos" fill="#3c75db" name="Product Demos" radius={[4, 4, 0, 0]} />
+                  )}
+                  {(repMetric === 'all' || repMetric === 'agreements') && (
+                    <Bar dataKey="agreementsWon" fill="#f28705" name="Agreements Won" radius={[4, 4, 0, 0]} />
+                  )}
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+
+            {/* Performance Matrix Table */}
+            <div className="overflow-x-auto border border-[#e8e7e5] rounded-xl">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-[#fafaf9] border-b border-[#e8e7e5] text-[#646260] font-semibold">
+                  <tr>
+                    <th className="py-3 px-4">Sales Representative</th>
+                    <th className="py-3 px-4">Employee ID</th>
+                    <th className="py-3 px-4">Territory / Location</th>
+                    <th className="py-3 px-4">Assigned Leads</th>
+                    <th className="py-3 px-4">School Visits</th>
+                    <th className="py-3 px-4">Demos Given</th>
+                    <th className="py-3 px-4">Agreements Won</th>
+                    <th className="py-3 px-4">Activities</th>
+                    <th className="py-3 px-4">Win Rate</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[#f3f2f1]">
+                  {repPerformanceData.map(r => (
+                    <tr key={r.id} className="hover:bg-[#fafaf9] transition-colors">
+                      <td className="py-3 px-4 font-bold text-[#084ab8]">{r.name}</td>
+                      <td className="py-3 px-4 text-[#646260]">{r.employeeId}</td>
+                      <td className="py-3 px-4 text-[#2d2b2a]">{r.location}</td>
+                      <td className="py-3 px-4 font-semibold text-[#084ab8]">{r.totalLeads}</td>
+                      <td className="py-3 px-4 text-[#2d2b2a]">{r.visits}</td>
+                      <td className="py-3 px-4 text-[#3c75db] font-semibold">{r.demos}</td>
+                      <td className="py-3 px-4 font-bold text-[#f28705]">{r.agreementsWon}</td>
+                      <td className="py-3 px-4 text-[#646260]">{r.activitiesCompleted}</td>
+                      <td className="py-3 px-4">
+                        <span className="px-2 py-0.5 rounded-full font-bold bg-[#eef4ff] text-[#084ab8] text-[10px]">
+                          {r.conversionRate}%
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Overdue Alerts Section if any pending urgent action */}
+      {overdueLeads.length > 0 && (
+        <div className="bg-white border border-[#f28705]/40 rounded-2xl p-5 shadow-xs">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4 text-[#b85c00]" />
               <h3 className="text-sm font-bold text-[#b85c00]">
-                Overdue Follow-ups ({overdueLeads.length})
+                Overdue Interaction Deadlines ({overdueLeads.length})
               </h3>
             </div>
             <button
               onClick={() => onNavigateTab('followups')}
               className="text-xs font-semibold text-[#b85c00] hover:underline flex items-center gap-1"
             >
-              Resolve Overdue <ArrowRight className="w-3.5 h-3.5" />
+              Resolve in Follow-ups <ArrowRight className="w-3.5 h-3.5" />
             </button>
           </div>
 
-          {overdueLeads.length === 0 ? (
-            <div className="p-8 text-center bg-[#fafaf9] rounded-xl border border-dashed border-[#e8e7e5] my-auto">
-              <CalendarCheck className="w-8 h-8 text-[#084ab8] mx-auto mb-2" />
-              <p className="text-xs font-semibold text-[#2d2b2a]">Zero overdue follow-ups</p>
-              <p className="text-[11px] text-[#646260] mt-0.5">All sales interaction deadlines are up to date.</p>
-            </div>
-          ) : (
-            <div className="space-y-2.5 overflow-y-auto max-h-80 pr-1">
-              {overdueLeads.map(lead => {
-                // Calculate days overdue
-                const due = new Date(lead.next_action_date!);
-                const curr = new Date(currentDateStr);
-                const diffTime = curr.getTime() - due.getTime();
-                const diffDays = Math.max(1, Math.ceil(diffTime / (1000 * 60 * 60 * 24)));
-
-                return (
-                  <div
-                    key={lead.id}
-                    className="p-3.5 rounded-xl border border-[#f28705]/40 bg-[#fffbf7] hover:border-[#b85c00] transition-all flex flex-col gap-2"
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <div>
-                        <h4
-                          onClick={() => onSelectLead(lead)}
-                          className="text-xs font-bold text-[#2d2b2a] hover:text-[#084ab8] cursor-pointer"
-                        >
-                          {lead.school_name}
-                        </h4>
-                        <p className="text-[11px] text-[#646260] mt-0.5">
-                          {lead.poc_name} • {lead.poc_contact}
-                        </p>
-                      </div>
-                      <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-[#fff4e6] text-[#b85c00] border border-[#f28705]/40 shrink-0">
-                        {diffDays} {diffDays === 1 ? 'day' : 'days'} overdue
-                      </span>
-                    </div>
-
-                    <div className="text-[11px] text-[#646260] bg-white p-2 rounded-lg border border-[#e8e7e5]">
-                      <span className="font-semibold text-[#646260]">Due Date: {lead.next_action_date}</span>
-                      <p className="text-[#2d2b2a] mt-0.5 line-clamp-1">{lead.next_action_remarks || 'Action pending'}</p>
-                    </div>
-
-                    <div className="flex items-center justify-between text-[11px]">
-                      <span className="text-[#646260]">Rep: <strong>{lead.assigned_rep_name}</strong></span>
-                      <button
-                        onClick={() => onOpenAddInteraction(lead)}
-                        className="text-[10px] font-semibold px-2.5 py-1 rounded-md bg-[#f28705] hover:bg-[#b85c00] text-white"
-                      >
-                        Update Now
-                      </button>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Super Admin Analytics Charts Section */}
-      {isSuperAdmin && (
-        <div className="space-y-4 pt-2">
-          <div className="flex items-center justify-between">
-            <h3 className="text-sm font-bold text-[#084ab8] flex items-center gap-2">
-              <TrendingUp className="w-4 h-4 text-[#f28705]" />
-              Executive Analytics & Territory Distribution
-            </h3>
-            <button
-              onClick={() => onNavigateTab('reports')}
-              className="text-xs font-semibold text-[#084ab8] hover:underline"
-            >
-              Full Analytics Report →
-            </button>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            
-            {/* Chart 1: Leads by Stage */}
-            <div className="bg-white border border-[#e8e7e5] rounded-2xl p-5 shadow-xs">
-              <h4 className="text-xs font-bold text-[#2d2b2a] mb-3">
-                Leads by Pipeline Stage
-              </h4>
-              <div className="h-56 w-full">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={stageData} margin={{ top: 10, right: 10, left: -20, bottom: 20 }}>
-                    <XAxis dataKey="name" angle={-25} textAnchor="end" interval={0} tick={{ fontSize: 9, fill: '#646260' }} />
-                    <YAxis tick={{ fontSize: 10, fill: '#646260' }} />
-                    <Tooltip
-                      contentStyle={{ backgroundColor: '#ffffff', borderColor: '#e8e7e5', borderRadius: 8, fontSize: 11 }}
-                    />
-                    <Bar dataKey="count" fill="#084ab8" radius={[4, 4, 0, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {overdueLeads.slice(0, 3).map(lead => (
+              <div
+                key={lead.id}
+                onClick={() => onSelectLead(lead)}
+                className="p-3 rounded-xl border border-[#f28705]/30 bg-[#fffbf7] hover:border-[#b85c00] transition-colors cursor-pointer space-y-1"
+              >
+                <div className="flex items-start justify-between gap-1">
+                  <h4 className="text-xs font-bold text-[#2d2b2a] line-clamp-1">{lead.school_name}</h4>
+                  <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-[#fff4e6] text-[#b85c00] shrink-0">
+                    {lead.state || 'School'}
+                  </span>
+                </div>
+                <p className="text-[11px] text-[#646260]">
+                  POC: {lead.poc_name} • {lead.poc_contact}
+                </p>
+                <span className="text-[10px] text-[#b85c00] font-semibold block">
+                  Due: {lead.next_action_date}
+                </span>
               </div>
-            </div>
-
-            {/* Chart 2: Leads by Product */}
-            <div className="bg-white border border-[#e8e7e5] rounded-2xl p-5 shadow-xs">
-              <h4 className="text-xs font-bold text-[#2d2b2a] mb-3">
-                Leads by Educational Product
-              </h4>
-              <div className="h-56 w-full flex items-center justify-center">
-                <ResponsiveContainer width="100%" height="100%">
-                  <PieChart>
-                    <Pie
-                      data={productData}
-                      dataKey="value"
-                      nameKey="name"
-                      cx="50%"
-                      cy="50%"
-                      outerRadius={70}
-                      innerRadius={35}
-                      label={({ name, percent }: any) => `${name} ${(percent * 100).toFixed(0)}%`}
-                      labelLine={false}
-                    >
-                      {productData.map((_, index) => (
-                        <Cell key={`cell-${index}`} fill={BRAND_COLORS[index % BRAND_COLORS.length]} />
-                      ))}
-                    </Pie>
-                    <Tooltip
-                      contentStyle={{ backgroundColor: '#ffffff', borderColor: '#e8e7e5', borderRadius: 8, fontSize: 11 }}
-                    />
-                  </PieChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
-
-            {/* Chart 3: Leads by Sales Rep */}
-            <div className="bg-white border border-[#e8e7e5] rounded-2xl p-5 shadow-xs">
-              <h4 className="text-xs font-bold text-[#2d2b2a] mb-3">
-                Assigned Accounts by Representative
-              </h4>
-              <div className="h-56 w-full">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={repData} margin={{ top: 10, right: 10, left: -20, bottom: 10 }}>
-                    <XAxis dataKey="name" tick={{ fontSize: 10, fill: '#646260' }} />
-                    <YAxis tick={{ fontSize: 10, fill: '#646260' }} />
-                    <Tooltip
-                      contentStyle={{ backgroundColor: '#ffffff', borderColor: '#e8e7e5', borderRadius: 8, fontSize: 11 }}
-                    />
-                    <Bar dataKey="leads" fill="#f28705" radius={[4, 4, 0, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
-
+            ))}
           </div>
         </div>
       )}
-
-      {/* Recent Activities Timeline (for Sales Reps & Super Admin) */}
-      <div className="bg-white border border-[#e8e7e5] rounded-2xl p-5 shadow-xs">
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-2">
-            <History className="w-4 h-4 text-[#084ab8]" />
-            <h3 className="text-sm font-bold text-[#084ab8]">
-              Recent Interaction Stream
-            </h3>
-          </div>
-          <span className="text-[11px] text-[#646260]">
-            Latest CRM touchpoints
-          </span>
-        </div>
-
-        <div className="space-y-3">
-          {recentInteractions.map(inter => {
-            const lead = leads.find(l => l.id === inter.lead_id);
-            return (
-              <div
-                key={inter.id}
-                className="p-3 rounded-xl border border-[#e8e7e5] bg-[#fafaf9] flex flex-col sm:flex-row sm:items-center justify-between gap-3"
-              >
-                <div className="space-y-1">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-[#eef4ff] text-[#084ab8] border border-[#084ab8]/20">
-                      {inter.interaction_type}
-                    </span>
-                    <strong
-                      onClick={() => lead && onSelectLead(lead)}
-                      className="text-xs font-bold text-[#2d2b2a] hover:text-[#084ab8] hover:underline cursor-pointer"
-                    >
-                      {lead ? lead.school_name : 'School Account'}
-                    </strong>
-                    <span className="text-[11px] text-[#8e8b88]">
-                      by {inter.created_by_name}
-                    </span>
-                  </div>
-                  <p className="text-xs text-[#646260] line-clamp-2">
-                    {inter.follow_up_remarks}
-                  </p>
-                </div>
-
-                <div className="text-left sm:text-right shrink-0">
-                  <span className="text-[10px] text-[#8e8b88] block">
-                    {inter.interaction_date ? inter.interaction_date.split('T')[0] : ''}
-                  </span>
-                  {inter.next_action_date && (
-                    <span className="text-[11px] font-semibold text-[#f28705] block">
-                      Next: {inter.next_action_date}
-                    </span>
-                  )}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </div>
     </div>
   );
 };

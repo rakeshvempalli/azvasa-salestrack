@@ -162,11 +162,16 @@ export const LeadDetailModal: React.FC<LeadDetailModalProps> = ({
                 {lead.school_name}
               </h2>
             </div>
-            <p className="text-xs text-[#646260] flex items-center gap-2 mt-1">
+            <p className="text-xs text-[#646260] flex items-center gap-2 mt-1 flex-wrap">
               <span className="flex items-center gap-1">
                 <Building2 className="w-3.5 h-3.5 text-[#8e8b88]" />
                 {lead.location}
               </span>
+              {lead.state && (
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-[#eef4ff] text-[#084ab8] border border-[#084ab8]/20">
+                  {lead.state}
+                </span>
+              )}
               <span>•</span>
               <span>Assigned: <strong className="text-[#2d2b2a]">{lead.assigned_rep_name}</strong></span>
             </p>
@@ -332,6 +337,10 @@ export const LeadDetailModal: React.FC<LeadDetailModalProps> = ({
                   <div>
                     <span className="text-[11px] text-[#646260] block">Location / City</span>
                     <strong className="text-xs text-[#2d2b2a]">{lead.location}</strong>
+                  </div>
+                  <div>
+                    <span className="text-[11px] text-[#646260] block">State / Union Territory</span>
+                    <strong className="text-xs text-[#084ab8]">{lead.state || 'Not specified'}</strong>
                   </div>
                 </div>
 

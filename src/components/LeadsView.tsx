@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Lead, PipelineStage, UserProfile } from '../types';
+import { Lead, PipelineStage, UserProfile, INDIAN_STATES_AND_UTS } from '../types';
 import { exportLeadsToCSV } from '../lib/storage';
 import {
   Search,
@@ -17,7 +17,9 @@ import {
   Tag,
   AlertTriangle,
   Clock,
-  Trash2
+  Trash2,
+  MapPin,
+  Globe2
 } from 'lucide-react';
 
 interface LeadsViewProps {
@@ -42,21 +44,31 @@ export const LeadsView: React.FC<LeadsViewProps> = ({
   onDeleteLead
 }) => {
   const isSuperAdmin = currentUser.role === 'super_admin';
+  const isSalesManager = currentUser.role === 'sales_manager';
+  const isManagerOrAdmin = isSuperAdmin || isSalesManager;
   const currentDateStr = '2026-09-19';
 
   const [schoolToDelete, setSchoolToDelete] = useState<Lead | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
-  // Role visibility filter: Reps only see their own assigned leads
+  // Centralized lead visibility: Admins and Managers view all leads.
+  // Sales Reps see all leads with a toggle for "My Assigned Leads"
+  const [scopeFilter, setScopeFilter] = useState<'all' | 'my'>('all');
+
   const baseLeads = useMemo(() => {
-    return isSuperAdmin 
-      ? leads 
-      : leads.filter(l => l.assigned_rep_id === currentUser.id);
-  }, [leads, isSuperAdmin, currentUser.id]);
+    if (isManagerOrAdmin) {
+      return leads;
+    }
+    if (scopeFilter === 'my') {
+      return leads.filter(l => l.assigned_rep_id === currentUser.id);
+    }
+    return leads;
+  }, [leads, isManagerOrAdmin, scopeFilter, currentUser.id]);
 
   // Search & Filter State
   const [searchTerm, setSearchTerm] = useState('');
   const [stageFilter, setStageFilter] = useState('');
+  const [stateFilter, setStateFilter] = useState('');
   const [sourceFilter, setSourceFilter] = useState('');
   const [productFilter, setProductFilter] = useState('');
   const [repFilter, setRepFilter] = useState('');
@@ -71,14 +83,15 @@ export const LeadsView: React.FC<LeadsViewProps> = ({
   // Filter application
   const filteredLeads = useMemo(() => {
     return baseLeads.filter(lead => {
-      // 1. Search Query: School Name, Location, POC Name, POC Contact
+      // 1. Search Query: School Name, Location, State, POC Name, POC Contact
       if (searchTerm.trim()) {
         const query = searchTerm.toLowerCase();
         const matchesSchool = lead.school_name?.toLowerCase().includes(query);
         const matchesLocation = lead.location?.toLowerCase().includes(query);
+        const matchesState = lead.state?.toLowerCase().includes(query);
         const matchesPoc = lead.poc_name?.toLowerCase().includes(query);
         const matchesContact = lead.poc_contact?.toLowerCase().includes(query);
-        if (!matchesSchool && !matchesLocation && !matchesPoc && !matchesContact) {
+        if (!matchesSchool && !matchesLocation && !matchesState && !matchesPoc && !matchesContact) {
           return false;
         }
       }
@@ -88,22 +101,27 @@ export const LeadsView: React.FC<LeadsViewProps> = ({
         return false;
       }
 
-      // 3. Source Filter
+      // 3. State Filter
+      if (stateFilter && lead.state !== stateFilter) {
+        return false;
+      }
+
+      // 4. Source Filter
       if (sourceFilter && lead.lead_source !== sourceFilter) {
         return false;
       }
 
-      // 4. Product Filter
+      // 5. Product Filter
       if (productFilter && lead.product !== productFilter) {
         return false;
       }
 
-      // 5. Sales Rep Filter
+      // 6. Sales Rep Filter
       if (repFilter && lead.assigned_rep_id !== repFilter) {
         return false;
       }
 
-      // 6. Followup Status Filter
+      // 7. Followup Status Filter
       if (followupStatusFilter) {
         if (followupStatusFilter === 'today') {
           if (lead.next_action_date !== currentDateStr) return false;
@@ -130,7 +148,7 @@ export const LeadsView: React.FC<LeadsViewProps> = ({
       }
       return sortOrder === 'asc' ? comparison : -comparison;
     });
-  }, [baseLeads, searchTerm, stageFilter, sourceFilter, productFilter, repFilter, followupStatusFilter, sortBy, sortOrder, currentDateStr]);
+  }, [baseLeads, searchTerm, stageFilter, stateFilter, sourceFilter, productFilter, repFilter, followupStatusFilter, sortBy, sortOrder, currentDateStr]);
 
   // Paginated chunk
   const totalPages = Math.ceil(filteredLeads.length / itemsPerPage) || 1;
@@ -146,6 +164,7 @@ export const LeadsView: React.FC<LeadsViewProps> = ({
   const resetFilters = () => {
     setSearchTerm('');
     setStageFilter('');
+    setStateFilter('');
     setSourceFilter('');
     setProductFilter('');
     setRepFilter('');
@@ -158,20 +177,52 @@ export const LeadsView: React.FC<LeadsViewProps> = ({
       {/* Top Header Card */}
       <div className="bg-white border border-[#e8e7e5] rounded-2xl p-5 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <h2 className="text-xl font-bold text-[#084ab8]">
-              {isSuperAdmin ? 'Institutional Leads Directory' : 'My Assigned Leads'}
+              Institutional Leads Directory
             </h2>
             <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-[#eef4ff] text-[#084ab8] border border-[#084ab8]/20">
               {filteredLeads.length} leads
             </span>
+            <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-[#fafaf9] text-[#646260] border border-[#e8e7e5] flex items-center gap-1">
+              <Globe2 className="w-3 h-3 text-[#084ab8]" />
+              Central Database
+            </span>
           </div>
           <p className="text-xs text-[#646260] mt-0.5">
-            Manage school contacts, product interests, stage progression, and follow-up activities
+            Manage institutional accounts, states, product interests, stage progression, and follow-up activities
           </p>
         </div>
 
-        <div className="flex items-center gap-2.5">
+        <div className="flex items-center gap-2.5 flex-wrap">
+          {/* Scope Toggle for Sales Representatives */}
+          {!isManagerOrAdmin && (
+            <div className="flex items-center p-1 bg-[#f3f2f1] rounded-xl border border-[#e8e7e5] text-xs">
+              <button
+                type="button"
+                onClick={() => { setScopeFilter('all'); setCurrentPage(1); }}
+                className={`px-2.5 py-1 rounded-lg font-semibold transition-colors cursor-pointer ${
+                  scopeFilter === 'all'
+                    ? 'bg-white text-[#084ab8] shadow-xs'
+                    : 'text-[#646260] hover:text-[#2d2b2a]'
+                }`}
+              >
+                All Central Leads
+              </button>
+              <button
+                type="button"
+                onClick={() => { setScopeFilter('my'); setCurrentPage(1); }}
+                className={`px-2.5 py-1 rounded-lg font-semibold transition-colors cursor-pointer ${
+                  scopeFilter === 'my'
+                    ? 'bg-white text-[#084ab8] shadow-xs'
+                    : 'text-[#646260] hover:text-[#2d2b2a]'
+                }`}
+              >
+                My Leads Only
+              </button>
+            </div>
+          )}
+
           <button
             onClick={handleExportCSV}
             title="Export filtered leads as CSV"
@@ -200,7 +251,7 @@ export const LeadsView: React.FC<LeadsViewProps> = ({
             <Search className="w-4 h-4 text-[#8e8b88] absolute left-3 top-3" />
             <input
               type="text"
-              placeholder="Search school name, location, POC name, or contact number..."
+              placeholder="Search school name, location, state, POC name, or contact number..."
               value={searchTerm}
               onChange={(e) => {
                 setSearchTerm(e.target.value);
@@ -226,7 +277,7 @@ export const LeadsView: React.FC<LeadsViewProps> = ({
               <option value="next_action_date-asc">Sort: Next Action Date (Soonest)</option>
             </select>
 
-            {(searchTerm || stageFilter || sourceFilter || productFilter || repFilter || followupStatusFilter) && (
+            {(searchTerm || stageFilter || stateFilter || sourceFilter || productFilter || repFilter || followupStatusFilter) && (
               <button
                 onClick={resetFilters}
                 className="text-xs text-[#084ab8] hover:underline whitespace-nowrap px-2 font-medium"
@@ -238,7 +289,7 @@ export const LeadsView: React.FC<LeadsViewProps> = ({
         </div>
 
         {/* Dropdown Filters Grid */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2.5 pt-2 border-t border-[#f3f2f1]">
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2.5 pt-2 border-t border-[#f3f2f1]">
           
           {/* Stage Filter */}
           <div>
@@ -256,6 +307,26 @@ export const LeadsView: React.FC<LeadsViewProps> = ({
               <option value="">All Stages</option>
               {stages.map(s => (
                 <option key={s.id} value={s.id}>{s.name}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* State / UT Filter */}
+          <div>
+            <label className="block text-[10px] font-semibold text-[#646260] uppercase mb-1">
+              State / UT
+            </label>
+            <select
+              value={stateFilter}
+              onChange={(e) => {
+                setStateFilter(e.target.value);
+                setCurrentPage(1);
+              }}
+              className="w-full px-2.5 py-1.5 text-xs border border-[#e8e7e5] rounded-lg bg-white focus:outline-none focus:border-[#084ab8]"
+            >
+              <option value="">All States</option>
+              {INDIAN_STATES_AND_UTS.map(st => (
+                <option key={st} value={st}>{st}</option>
               ))}
             </select>
           </div>
@@ -303,8 +374,8 @@ export const LeadsView: React.FC<LeadsViewProps> = ({
             </select>
           </div>
 
-          {/* Sales Rep Filter (Super Admin only) */}
-          {isSuperAdmin && (
+          {/* Sales Rep Filter (Super Admin & Sales Manager) */}
+          {isManagerOrAdmin && (
             <div>
               <label className="block text-[10px] font-semibold text-[#646260] uppercase mb-1">
                 Representative
@@ -384,15 +455,22 @@ export const LeadsView: React.FC<LeadsViewProps> = ({
                       className="hover:bg-[#fafaf9] transition-colors group cursor-pointer"
                       onClick={() => onSelectLead(lead)}
                     >
-                      {/* School & Location */}
+                      {/* School & Location & State */}
                       <td className="py-3.5 px-4">
                         <span className="font-bold text-[#2d2b2a] group-hover:text-[#084ab8] block">
                           {lead.school_name}
                         </span>
-                        <span className="text-[11px] text-[#646260] flex items-center gap-1 mt-0.5">
-                          <Building2 className="w-3 h-3 text-[#8e8b88]" />
-                          {lead.location}
-                        </span>
+                        <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
+                          <span className="text-[11px] text-[#646260] flex items-center gap-1">
+                            <Building2 className="w-3 h-3 text-[#8e8b88]" />
+                            {lead.location}
+                          </span>
+                          {lead.state && (
+                            <span className="text-[10px] font-semibold px-1.5 py-0.2 rounded bg-[#f3f2f1] text-[#084ab8] border border-[#e8e7e5]">
+                              {lead.state}
+                            </span>
+                          )}
+                        </div>
                       </td>
 
                       {/* POC Contact with clickable tel */}
@@ -531,10 +609,17 @@ export const LeadsView: React.FC<LeadsViewProps> = ({
                     <h4 className="text-xs font-bold text-[#084ab8]">
                       {lead.school_name}
                     </h4>
-                    <span className="text-[11px] text-[#646260] flex items-center gap-1 mt-0.5">
-                      <Building2 className="w-3 h-3 text-[#8e8b88]" />
-                      {lead.location}
-                    </span>
+                    <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
+                      <span className="text-[11px] text-[#646260] flex items-center gap-1">
+                        <Building2 className="w-3 h-3 text-[#8e8b88]" />
+                        {lead.location}
+                      </span>
+                      {lead.state && (
+                        <span className="text-[10px] font-semibold px-1.5 py-0.2 rounded bg-[#f3f2f1] text-[#084ab8] border border-[#e8e7e5]">
+                          {lead.state}
+                        </span>
+                      )}
+                    </div>
                   </div>
                   <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-[#eef4ff] text-[#084ab8] border border-[#084ab8]/20 shrink-0">
                     {lead.current_stage_name}
