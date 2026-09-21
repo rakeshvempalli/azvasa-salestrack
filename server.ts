@@ -1,5 +1,6 @@
 import express from 'express';
 import path from 'path';
+import fs from 'fs';
 import { createServer as createViteServer } from 'vite';
 
 const app = express();
@@ -9,9 +10,13 @@ app.use(express.json());
 
 // Load credentials from environment
 const SUPER_ADMIN_EMAIL = process.env.SUPER_ADMIN_EMAIL || 'vempallirakhi20@gmail.com';
-const SUPER_ADMIN_PASSWORD = process.env.SUPER_ADMIN_PASSWORD || 'Password@123';
+const SUPER_ADMIN_PASSWORD = process.env.SUPER_ADMIN_PASSWORD || 'Rakhi@1234';
 
-// In-memory or state storage for server
+// Storage file path for persistent users across devices
+const DATA_DIR = path.join(process.cwd(), 'data');
+const USERS_FILE = path.join(DATA_DIR, 'users.json');
+
+// Interface for registered users
 interface ServerUser {
   id: string;
   email: string;
@@ -23,186 +28,298 @@ interface ServerUser {
   employee_id: string;
   designation: string;
   phone: string;
+  avatar_url?: string;
+  created_at?: string;
+  updated_at?: string;
 }
 
-// Registered users on server - initialized with Super Admin vempallirakhi20@gmail.com
-let registeredUsers: ServerUser[] = [
+// Initial fallback users
+const DEFAULT_USERS: ServerUser[] = [
   {
     id: 'user-super-admin-rakhi',
-    email: SUPER_ADMIN_EMAIL,
+    email: 'vempallirakhi20@gmail.com',
     username: 'rakhi',
-    password: SUPER_ADMIN_PASSWORD,
+    password: 'Rakhi@1234',
     full_name: 'Rakhi Vempalli (Super Admin)',
     role: 'super_admin',
     status: 'active',
     employee_id: 'AZ-HQ-001',
     designation: 'Managing Director & Super Admin',
-    phone: '+91 98450 99999'
+    phone: '+91 98450 99999',
+    avatar_url: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
+    created_at: '2026-01-01T00:00:00Z'
   }
 ];
+
+// Read users from persistent disk file
+function loadUsers(): ServerUser[] {
+  try {
+    if (!fs.existsSync(DATA_DIR)) {
+      fs.mkdirSync(DATA_DIR, { recursive: true });
+    }
+    if (fs.existsSync(USERS_FILE)) {
+      const content = fs.readFileSync(USERS_FILE, 'utf-8');
+      const parsed = JSON.parse(content);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        // Ensure primary super admin account has current configured credentials
+        const adminIndex = parsed.findIndex(u => 
+          u.id === 'user-super-admin-rakhi' || 
+          u.email.toLowerCase() === 'vempallirakhi20@gmail.com' ||
+          u.email.toLowerCase() === 'admin@azvasa.com' ||
+          (u.username && u.username.toLowerCase() === 'rakhi')
+        );
+        if (adminIndex >= 0) {
+          parsed[adminIndex].email = 'vempallirakhi20@gmail.com';
+          parsed[adminIndex].username = parsed[adminIndex].username || 'rakhi';
+          parsed[adminIndex].password = 'Rakhi@1234';
+          parsed[adminIndex].role = 'super_admin';
+          parsed[adminIndex].status = 'active';
+          fs.writeFileSync(USERS_FILE, JSON.stringify(parsed, null, 2), 'utf-8');
+        } else {
+          parsed.unshift(DEFAULT_USERS[0]);
+          fs.writeFileSync(USERS_FILE, JSON.stringify(parsed, null, 2), 'utf-8');
+        }
+        return parsed;
+      }
+    }
+    // Seed initial users if file doesn't exist
+    fs.writeFileSync(USERS_FILE, JSON.stringify(DEFAULT_USERS, null, 2), 'utf-8');
+    return [...DEFAULT_USERS];
+  } catch (err) {
+    console.error('Failed reading users from disk:', err);
+    return [...DEFAULT_USERS];
+  }
+}
+
+// Save users to persistent disk file
+function saveUsers(users: ServerUser[]) {
+  try {
+    if (!fs.existsSync(DATA_DIR)) {
+      fs.mkdirSync(DATA_DIR, { recursive: true });
+    }
+    fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2), 'utf-8');
+  } catch (err) {
+    console.error('Failed saving users to disk:', err);
+  }
+}
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', time: new Date().toISOString() });
 });
 
-// Fetch all registered users
+// Fetch all registered users (across all devices)
 app.get('/api/users', (req, res) => {
-  res.json({ users: registeredUsers });
+  const users = loadUsers();
+  res.json({ users });
 });
 
-// Unified login endpoint: supports username or email + password
+// Create a new user (Super Admin, Sales Manager, Sales Rep) and persist to disk
+app.post('/api/users', (req, res) => {
+  const newUser: ServerUser = req.body;
+  if (!newUser || !newUser.email || !newUser.role) {
+    return res.status(400).json({ error: 'Email and role are required to create a user.' });
+  }
+
+  const users = loadUsers();
+  const normalizedEmail = newUser.email.trim().toLowerCase();
+  const normalizedUsername = (newUser.username || '').trim().toLowerCase();
+
+  // Check if exists
+  const existingIndex = users.findIndex(u => 
+    u.id === newUser.id || 
+    u.email.toLowerCase() === normalizedEmail ||
+    (normalizedUsername && u.username && u.username.toLowerCase() === normalizedUsername)
+  );
+
+  const cleanUser: ServerUser = {
+    ...newUser,
+    id: newUser.id || `user-${newUser.role}-${Date.now()}`,
+    email: newUser.email.trim(),
+    username: newUser.username ? newUser.username.trim() : newUser.email.split('@')[0],
+    password: newUser.password ? newUser.password.trim() : 'Password@123',
+    status: newUser.status || 'active',
+    created_at: newUser.created_at || new Date().toISOString()
+  };
+
+  if (existingIndex >= 0) {
+    users[existingIndex] = { ...users[existingIndex], ...cleanUser, updated_at: new Date().toISOString() };
+  } else {
+    users.push(cleanUser);
+  }
+
+  saveUsers(users);
+  return res.json({ success: true, user: cleanUser, count: users.length });
+});
+
+// Update an existing user on disk
+app.put('/api/users/:id', (req, res) => {
+  const { id } = req.params;
+  const updates: Partial<ServerUser> = req.body;
+  const users = loadUsers();
+  const index = users.findIndex(u => u.id === id);
+
+  if (index === -1) {
+    return res.status(404).json({ error: 'User not found on server.' });
+  }
+
+  users[index] = {
+    ...users[index],
+    ...updates,
+    updated_at: new Date().toISOString()
+  };
+
+  saveUsers(users);
+  return res.json({ success: true, user: users[index] });
+});
+
+// Delete a user from disk
+app.delete('/api/users/:id', (req, res) => {
+  const { id } = req.params;
+  let users = loadUsers();
+  users = users.filter(u => u.id !== id);
+  saveUsers(users);
+  return res.json({ success: true, count: users.length });
+});
+
+// Unified login endpoint: supports username or company email + password
 app.post('/api/auth/login', (req, res) => {
   const identifier = (req.body.identifier || req.body.usernameOrEmail || req.body.email || req.body.username || '').trim();
   const password = (req.body.password || '').trim();
 
   if (!identifier || !password) {
-    return res.status(400).json({ error: 'Username/email and password are required' });
+    return res.status(400).json({ error: 'Username/email and password are required.' });
   }
 
-  // Merge clientProfiles if provided by client to ensure server has latest added accounts
+  let users = loadUsers();
+
+  // Merge clientProfiles if provided by client to ensure server has any accounts created locally
   if (Array.isArray(req.body.clientProfiles) && req.body.clientProfiles.length > 0) {
+    let modified = false;
     req.body.clientProfiles.forEach((cp: ServerUser) => {
-      const idx = registeredUsers.findIndex(u => u.id === cp.id || u.email.toLowerCase() === cp.email.toLowerCase());
+      const idx = users.findIndex(u => u.id === cp.id || u.email.toLowerCase() === cp.email.toLowerCase());
       if (idx >= 0) {
-        registeredUsers[idx] = { ...registeredUsers[idx], ...cp };
+        users[idx] = { ...users[idx], ...cp };
+        modified = true;
       } else {
-        registeredUsers.push(cp);
+        users.push(cp);
+        modified = true;
       }
     });
+    if (modified) {
+      saveUsers(users);
+    }
   }
 
   const query = identifier.toLowerCase();
-  
-  // Check Super Admin default fallback
-  if ((query === SUPER_ADMIN_EMAIL.toLowerCase() || query === 'rakhi') && password === SUPER_ADMIN_PASSWORD) {
-    const adminUser = registeredUsers.find(u => u.email.toLowerCase() === SUPER_ADMIN_EMAIL.toLowerCase()) || registeredUsers[0];
-    return res.json({ success: true, user: adminUser });
-  }
 
-  // Check registered users by email OR username
-  const matched = registeredUsers.find(u => 
+  // Match registered user by email OR username (case-insensitive)
+  const matched = users.find(u => 
     u.email.toLowerCase() === query || 
     (u.username && u.username.toLowerCase() === query)
   );
 
-  if (!matched) {
-    return res.status(401).json({ error: 'No account found with this username or email.' });
+  if (matched) {
+    if (matched.status !== 'active') {
+      return res.status(403).json({ error: 'Your account has been deactivated. Please contact Super Admin.' });
+    }
+
+    const expectedPassword = matched.password || 'Password@123';
+    const isPrimaryAdmin = matched.email.toLowerCase() === SUPER_ADMIN_EMAIL.toLowerCase() || (matched.username && matched.username.toLowerCase() === 'rakhi');
+
+    if (password === expectedPassword || (isPrimaryAdmin && password === SUPER_ADMIN_PASSWORD)) {
+      return res.json({ success: true, user: matched });
+    } else {
+      return res.status(401).json({ error: 'Invalid password. Please check your credentials.' });
+    }
   }
 
-  if (matched.status !== 'active') {
-    return res.status(403).json({ error: 'Your account has been deactivated. Please contact Super Admin.' });
-  }
-
-  const expectedPassword = matched.password || 'Password@123';
-  if (expectedPassword !== password) {
-    return res.status(401).json({ error: 'Invalid password. Please check your credentials.' });
-  }
-
-  return res.json({ success: true, user: matched });
-});
-
-// Admin login endpoint (validates against environment or stored super admin)
-app.post('/api/auth/admin-login', (req, res) => {
-  const { email, password } = req.body;
-  if (!email || !password) {
-    return res.status(400).json({ error: 'Email and password are required' });
-  }
-
-  const query = email.trim().toLowerCase();
+  // Fallback for default primary super admin
   if ((query === SUPER_ADMIN_EMAIL.toLowerCase() || query === 'rakhi') && password === SUPER_ADMIN_PASSWORD) {
-    const adminUser = registeredUsers.find(u => u.role === 'super_admin') || registeredUsers[0];
+    const adminUser = users.find(u => u.role === 'super_admin') || DEFAULT_USERS[0];
     return res.json({ success: true, user: adminUser });
   }
 
-  // Also allow any registered super_admin
-  const matchedAdmin = registeredUsers.find(u => 
+  return res.status(401).json({ error: 'No account found with this username or company email.' });
+});
+
+// Admin login endpoint
+app.post('/api/auth/admin-login', (req, res) => {
+  const { email, password } = req.body;
+  if (!email || !password) {
+    return res.status(400).json({ error: 'Email/username and password are required.' });
+  }
+
+  const query = email.trim().toLowerCase();
+  const users = loadUsers();
+
+  const matchedAdmin = users.find(u => 
     (u.email.toLowerCase() === query || (u.username && u.username.toLowerCase() === query)) && 
     u.role === 'super_admin'
   );
 
-  if (matchedAdmin && (matchedAdmin.password || 'Password@123') === password) {
-    return res.json({ success: true, user: matchedAdmin });
-  }
-
-  return res.status(401).json({ error: 'Invalid Super Admin credentials' });
-});
-
-// Google OAuth verification endpoint
-app.post('/api/auth/google-login', (req, res) => {
-  const { email, full_name, avatar_url, clientProfiles } = req.body;
-  if (!email) {
-    return res.status(400).json({ error: 'Google email is required' });
-  }
-
-  // Merge clientProfiles if provided
-  if (Array.isArray(clientProfiles) && clientProfiles.length > 0) {
-    clientProfiles.forEach((cp: ServerUser) => {
-      const idx = registeredUsers.findIndex(u => u.id === cp.id || u.email.toLowerCase() === cp.email.toLowerCase());
-      if (idx >= 0) {
-        registeredUsers[idx] = { ...registeredUsers[idx], ...cp };
-      } else {
-        registeredUsers.push(cp);
-      }
-    });
-  }
-
-  const normalizedEmail = email.trim().toLowerCase();
-
-  // If it matches primary super admin
-  if (normalizedEmail === SUPER_ADMIN_EMAIL.toLowerCase()) {
-    const superAdmin = registeredUsers.find(u => u.email.toLowerCase() === normalizedEmail) || registeredUsers[0];
-    return res.json({
-      authorized: true,
-      user: {
-        ...superAdmin,
-        avatar_url: avatar_url || superAdmin.phone
-      }
-    });
-  }
-
-  const matchedUser = registeredUsers.find(u => u.email.toLowerCase() === normalizedEmail);
-
-  if (!matchedUser) {
-    return res.status(403).json({
-      authorized: false,
-      message: `The account ${email} is not registered in AZVASA SalesTrack. Please ask the Super Admin to add your email and credentials.`
-    });
-  }
-
-  if (matchedUser.status !== 'active') {
-    return res.status(403).json({
-      authorized: false,
-      message: 'Your account has been deactivated. Please contact the administrator.'
-    });
-  }
-
-  return res.json({
-    authorized: true,
-    user: {
-      ...matchedUser,
-      avatar_url: avatar_url || undefined
+  if (matchedAdmin) {
+    if (matchedAdmin.status !== 'active') {
+      return res.status(403).json({ error: 'This Super Admin account is deactivated.' });
     }
-  });
+    const expectedPassword = matchedAdmin.password || 'Password@123';
+    if (password === expectedPassword || password === SUPER_ADMIN_PASSWORD) {
+      return res.json({ success: true, user: matchedAdmin });
+    }
+  }
+
+  if ((query === SUPER_ADMIN_EMAIL.toLowerCase() || query === 'rakhi') && password === SUPER_ADMIN_PASSWORD) {
+    const adminUser = users.find(u => u.role === 'super_admin') || DEFAULT_USERS[0];
+    return res.json({ success: true, user: adminUser });
+  }
+
+  return res.status(401).json({ error: 'Invalid Super Admin credentials.' });
 });
 
-// Sync registered users (Super Admins, Sales Managers, Sales Reps)
+// Sync registered users across devices (Merges rather than deletes)
 app.post('/api/users/sync', (req, res) => {
   const { users } = req.body;
+  let currentUsers = loadUsers();
+
   if (Array.isArray(users) && users.length > 0) {
-    registeredUsers = users;
+    users.forEach((incomingUser: ServerUser) => {
+      const idx = currentUsers.findIndex(u => 
+        u.id === incomingUser.id || 
+        u.email.toLowerCase() === incomingUser.email.toLowerCase()
+      );
+      if (idx >= 0) {
+        currentUsers[idx] = { ...currentUsers[idx], ...incomingUser };
+      } else {
+        currentUsers.push(incomingUser);
+      }
+    });
+    saveUsers(currentUsers);
   }
-  res.json({ success: true, count: registeredUsers.length });
+
+  res.json({ success: true, count: currentUsers.length, users: currentUsers });
 });
 
 // Backward-compatible reps sync endpoint
 app.post('/api/reps/sync', (req, res) => {
   const { reps } = req.body;
-  if (Array.isArray(reps)) {
-    const admins = registeredUsers.filter(u => u.role === 'super_admin');
-    registeredUsers = [...admins, ...reps.filter(r => r.role !== 'super_admin')];
+  let currentUsers = loadUsers();
+
+  if (Array.isArray(reps) && reps.length > 0) {
+    reps.forEach((incomingRep: ServerUser) => {
+      const idx = currentUsers.findIndex(u => 
+        u.id === incomingRep.id || 
+        u.email.toLowerCase() === incomingRep.email.toLowerCase()
+      );
+      if (idx >= 0) {
+        currentUsers[idx] = { ...currentUsers[idx], ...incomingRep };
+      } else {
+        currentUsers.push(incomingRep);
+      }
+    });
+    saveUsers(currentUsers);
   }
-  res.json({ success: true, count: registeredUsers.length });
+
+  res.json({ success: true, count: currentUsers.length, users: currentUsers });
 });
 
 // Automated email reminder check & dispatch

@@ -77,13 +77,13 @@ export const INITIAL_STAGES: PipelineStage[] = [
   }
 ];
 
-// Super Admin initialized as vempallirakhi20@gmail.com with fixed credentials
+// Super Admin initialized with credentials
 export const INITIAL_PROFILES: UserProfile[] = [
   {
     id: 'user-super-admin-rakhi',
     email: 'vempallirakhi20@gmail.com',
     username: 'rakhi',
-    password: 'Password@123',
+    password: 'Rakhi@1234',
     full_name: 'Rakhi Vempalli (Super Admin)',
     phone: '+91 98450 99999',
     employee_id: 'AZ-HQ-001',

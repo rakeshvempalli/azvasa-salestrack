@@ -33,7 +33,8 @@ import {
   deleteLead,
   deleteNotification,
   clearReadNotifications,
-  syncFollowupNotifications
+  syncFollowupNotifications,
+  syncUsersFromServer
 } from './lib/storage';
 
 import { Sidebar, NavTab } from './components/Sidebar';
@@ -93,10 +94,15 @@ export default function App() {
     setTasks(getTasks());
   };
 
-  // Automatically sync follow-up notifications on initial load
+  // Automatically sync follow-up notifications and server users on initial load
   useEffect(() => {
     syncFollowupNotifications('2026-09-19');
     setNotifications(getNotifications());
+    syncUsersFromServer().then(syncedUsers => {
+      if (syncedUsers && syncedUsers.length > 0) {
+        setReps(syncedUsers);
+      }
+    });
   }, []);
 
   // Auth Handlers

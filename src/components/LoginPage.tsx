@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { AZVASALogo } from './AZVASALogo';
 import { UserProfile } from '../types';
-import { getProfiles, authenticateWithCredentials, setCurrentUser, syncUsersToServer } from '../lib/storage';
+import { getProfiles, authenticateWithCredentials, setCurrentUser, syncUsersToServer, syncUsersFromServer } from '../lib/storage';
 import {
   Lock,
   User,
@@ -23,7 +23,12 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
   const [credError, setCredError] = useState<string | null>(null);
   const [credLoading, setCredLoading] = useState(false);
 
-  // Credentials Submit Handler (Supports email or username + password)
+  // Sync users from server upon mounting to guarantee multi-device access
+  useEffect(() => {
+    syncUsersFromServer();
+  }, []);
+
+  // Credentials Submit Handler (Supports company email or username + password)
   const handleCredentialsSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setCredError(null);
@@ -33,7 +38,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
     const cleanPassword = password.trim();
 
     if (!cleanIdentifier || !cleanPassword) {
-      setCredError('Please enter both username/email and password.');
+      setCredError('Please enter both username/company email and password.');
       setCredLoading(false);
       return;
     }
@@ -57,6 +62,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
 
       if (response.ok && data.success && data.user) {
         setCurrentUser(data.user);
+        syncUsersFromServer();
         onLoginSuccess(data.user);
         return;
       } else if (data.error) {
@@ -76,7 +82,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
       setCurrentUser(result.user);
       onLoginSuccess(result.user);
     } else {
-      setCredError(result.error || 'Invalid credentials. Please verify your username/email and password.');
+      setCredError(result.error || 'Invalid credentials. Please verify your username/company email and password.');
     }
     setCredLoading(false);
   };
@@ -110,17 +116,17 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
           </div>
         )}
 
-        {/* Normal Username & Password Login Form */}
+        {/* Corporate Username & Password Login Form */}
         <form onSubmit={handleCredentialsSubmit} className="w-full space-y-4">
           <div>
             <label className="block text-xs font-semibold text-[#2d2b2a] mb-1.5">
-              Username or Email
+              Username or Company Email
             </label>
             <div className="relative">
               <User className="w-4 h-4 text-[#8e8b88] absolute left-3.5 top-1/2 -translate-y-1/2" />
               <input
                 type="text"
-                placeholder="Enter your username or email"
+                placeholder="Enter your username or company email"
                 value={identifier}
                 onChange={(e) => setIdentifier(e.target.value)}
                 required

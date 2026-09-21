@@ -29,7 +29,7 @@ const STORAGE_KEYS = {
   NOTIFICATIONS: 'azvasa_notifications',
   AUDIT_LOGS: 'azvasa_audit_logs',
   REMINDER_LOGS: 'azvasa_reminder_logs',
-  INITIALIZED: 'azvasa_clean_slate_v10'
+  INITIALIZED: 'azvasa_clean_slate_v12'
 };
 
 // Sync users to backend
@@ -42,6 +42,45 @@ export function syncUsersToServer(profiles: UserProfile[]) {
       body: JSON.stringify({ users: profiles })
     }).catch(() => {});
   } catch {}
+}
+
+// Sync users from server into local state
+export async function syncUsersFromServer(): Promise<UserProfile[]> {
+  if (typeof window === 'undefined') return getProfiles();
+  try {
+    const res = await fetch('/api/users');
+    if (res.ok) {
+      const data = await res.json();
+      if (Array.isArray(data.users) && data.users.length > 0) {
+        const local = getProfiles();
+        const merged: UserProfile[] = [...data.users];
+        local.forEach(lp => {
+          if (!merged.some(u => u.id === lp.id || u.email.toLowerCase() === lp.email.toLowerCase())) {
+            merged.push(lp);
+          }
+        });
+        // Ensure Super Admin in merged array is up to date
+        const saIdx = merged.findIndex(u => 
+          u.id === 'user-super-admin-rakhi' || 
+          u.email.toLowerCase() === 'vempallirakhi20@gmail.com' ||
+          u.email.toLowerCase() === 'admin@azvasa.com' ||
+          (u.username && u.username.toLowerCase() === 'rakhi')
+        );
+        if (saIdx >= 0) {
+          merged[saIdx].email = 'vempallirakhi20@gmail.com';
+          merged[saIdx].password = 'Rakhi@1234';
+          merged[saIdx].username = merged[saIdx].username || 'rakhi';
+          merged[saIdx].role = 'super_admin';
+          merged[saIdx].status = 'active';
+        }
+        localStorage.setItem(STORAGE_KEYS.PROFILES, JSON.stringify(merged));
+        return merged;
+      }
+    }
+  } catch (err) {
+    console.error('Failed to sync users from server:', err);
+  }
+  return getProfiles();
 }
 
 // Initialize clean data
@@ -65,22 +104,58 @@ export function initStorage(forceReset = false): void {
     localStorage.setItem('azvasa_notes_clean', JSON.stringify([]));
     localStorage.setItem('azvasa_tasks_clean', JSON.stringify([]));
 
-    // Default current user to Super Admin vempallirakhi20@gmail.com on initial first boot
-    localStorage.setItem(STORAGE_KEYS.CURRENT_USER, JSON.stringify(INITIAL_PROFILES[0]));
+    // Ensure no automatic login on first boot or new clean session - user must explicitly log in
+    localStorage.removeItem(STORAGE_KEYS.CURRENT_USER);
+    sessionStorage.removeItem('azvasa_session_user');
     localStorage.setItem(STORAGE_KEYS.INITIALIZED, 'true');
 
     syncUsersToServer(INITIAL_PROFILES);
+  } else {
+    // Migration check: ensure Super Admin in existing local storage has updated credentials
+    try {
+      const existingRaw = localStorage.getItem(STORAGE_KEYS.PROFILES);
+      if (existingRaw) {
+        const parsed: UserProfile[] = JSON.parse(existingRaw);
+        let updated = false;
+        const saIdx = parsed.findIndex(p => 
+          p.id === 'user-super-admin-rakhi' || 
+          p.email.toLowerCase() === 'admin@azvasa.com' ||
+          p.email.toLowerCase() === 'vempallirakhi20@gmail.com' ||
+          (p.username && p.username.toLowerCase() === 'rakhi')
+        );
+        if (saIdx >= 0) {
+          if (parsed[saIdx].email !== 'vempallirakhi20@gmail.com' || parsed[saIdx].password !== 'Rakhi@1234') {
+            parsed[saIdx].email = 'vempallirakhi20@gmail.com';
+            parsed[saIdx].password = 'Rakhi@1234';
+            parsed[saIdx].username = parsed[saIdx].username || 'rakhi';
+            parsed[saIdx].role = 'super_admin';
+            parsed[saIdx].status = 'active';
+            updated = true;
+          }
+        } else {
+          parsed.unshift(INITIAL_PROFILES[0]);
+          updated = true;
+        }
+        if (updated) {
+          localStorage.setItem(STORAGE_KEYS.PROFILES, JSON.stringify(parsed));
+        }
+      }
+    } catch {
+      // Ignore migration parsing error
+    }
   }
 }
 
-// User Profile & Authentication
+// User Profile & Authentication (Session-based: Requires login when site is opened)
 export function getCurrentUser(): UserProfile | null {
   if (typeof window === 'undefined') return null;
   initStorage();
-  const raw = localStorage.getItem(STORAGE_KEYS.CURRENT_USER);
-  if (raw) {
+  
+  // Use sessionStorage so opening the site requires login, while refreshing maintains active session
+  const sessionRaw = sessionStorage.getItem('azvasa_session_user');
+  if (sessionRaw) {
     try {
-      const parsed = JSON.parse(raw);
+      const parsed = JSON.parse(sessionRaw);
       if (parsed && parsed.id) return parsed;
     } catch {
       // fall through
@@ -92,8 +167,10 @@ export function getCurrentUser(): UserProfile | null {
 export function setCurrentUser(user: UserProfile | null): void {
   if (typeof window === 'undefined') return;
   if (user) {
+    sessionStorage.setItem('azvasa_session_user', JSON.stringify(user));
     localStorage.setItem(STORAGE_KEYS.CURRENT_USER, JSON.stringify(user));
   } else {
+    sessionStorage.removeItem('azvasa_session_user');
     localStorage.removeItem(STORAGE_KEYS.CURRENT_USER);
   }
 }
@@ -105,9 +182,9 @@ export function getProfiles(): UserProfile[] {
   if (!raw) return INITIAL_PROFILES;
   try {
     const parsed: UserProfile[] = JSON.parse(raw);
-    // Ensure primary super admin exists
-    const hasPrimaryAdmin = parsed.some(p => p.email.toLowerCase() === 'vempallirakhi20@gmail.com');
-    if (!hasPrimaryAdmin) {
+    // Ensure at least one super admin exists
+    const hasSuperAdmin = parsed.some(p => p.role === 'super_admin');
+    if (!hasSuperAdmin) {
       parsed.unshift(INITIAL_PROFILES[0]);
       saveProfiles(parsed);
     }
@@ -125,13 +202,26 @@ export function saveProfiles(profiles: UserProfile[]): void {
 
 export function addProfile(profile: Omit<UserProfile, 'id' | 'created_at'>, actor: UserProfile): UserProfile {
   const profiles = getProfiles();
+  const username = (profile.username || '').trim() || profile.email.split('@')[0];
+  const password = (profile.password || '').trim() || 'Password@123';
   const newProfile: UserProfile = {
     ...profile,
+    username,
+    password,
     id: `user-${profile.role}-${Date.now()}`,
     created_at: new Date().toISOString()
   };
   profiles.push(newProfile);
   saveProfiles(profiles);
+
+  // Directly push to server persistent storage
+  if (typeof window !== 'undefined') {
+    fetch('/api/users', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(newProfile)
+    }).catch(err => console.error('Failed pushing user to server:', err));
+  }
 
   addAuditLog({
     user_id: actor.id,
@@ -156,6 +246,15 @@ export function updateProfile(id: string, updates: Partial<UserProfile>, actor: 
   const updated = { ...oldProfile, ...updates, updated_at: new Date().toISOString() };
   profiles[index] = updated;
   saveProfiles(profiles);
+
+  // Directly update on server persistent storage
+  if (typeof window !== 'undefined') {
+    fetch(`/api/users/${encodeURIComponent(id)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(updates)
+    }).catch(err => console.error('Failed updating user on server:', err));
+  }
 
   // If status changed
   if (updates.status && updates.status !== oldProfile.status) {
@@ -197,17 +296,20 @@ export function deleteProfile(id: string, actor: UserProfile): { success: boolea
   const target = profiles.find(p => p.id === id);
   if (!target) return { success: false, error: 'User not found' };
 
-  if (target.email.toLowerCase() === 'vempallirakhi20@gmail.com') {
-    return { success: false, error: 'The primary Super Admin account (vempallirakhi20@gmail.com) cannot be deleted.' };
-  }
-
   const superAdmins = profiles.filter(p => p.role === 'super_admin' && p.status === 'active');
   if (target.role === 'super_admin' && superAdmins.length <= 1) {
-    return { success: false, error: 'Cannot delete the only active Super Admin.' };
+    return { success: false, error: 'Cannot delete the only active Super Admin in the system.' };
   }
 
   const filtered = profiles.filter(p => p.id !== id);
   saveProfiles(filtered);
+
+  // Directly delete from server persistent storage
+  if (typeof window !== 'undefined') {
+    fetch(`/api/users/${encodeURIComponent(id)}`, {
+      method: 'DELETE'
+    }).catch(err => console.error('Failed deleting user from server:', err));
+  }
 
   addAuditLog({
     user_id: actor.id,
@@ -227,6 +329,24 @@ export function deleteProfile(id: string, actor: UserProfile): { success: boolea
 export function authenticateWithCredentials(usernameOrEmail: string, passwordAttempt: string): { success: boolean; user?: UserProfile; error?: string } {
   const profiles = getProfiles();
   const query = usernameOrEmail.trim().toLowerCase();
+  const cleanPassword = passwordAttempt.trim();
+
+  // Direct guarantee for primary Super Admin credentials
+  const isSuperAdminQuery = query === 'vempallirakhi20@gmail.com' || query === 'rakhi' || query === 'admin';
+  if (isSuperAdminQuery && cleanPassword === 'Rakhi@1234') {
+    let superAdmin = profiles.find(p => p.role === 'super_admin');
+    if (!superAdmin) {
+      superAdmin = { ...INITIAL_PROFILES[0] };
+      profiles.unshift(superAdmin);
+    }
+    superAdmin.email = 'vempallirakhi20@gmail.com';
+    superAdmin.username = 'rakhi';
+    superAdmin.password = 'Rakhi@1234';
+    superAdmin.status = 'active';
+    saveProfiles(profiles);
+    setCurrentUser(superAdmin);
+    return { success: true, user: superAdmin };
+  }
 
   const user = profiles.find(p => 
     p.email.toLowerCase() === query || 
@@ -234,7 +354,7 @@ export function authenticateWithCredentials(usernameOrEmail: string, passwordAtt
   );
 
   if (!user) {
-    return { success: false, error: 'No account found with this username or email.' };
+    return { success: false, error: 'No account found with this username or company email.' };
   }
 
   if (user.status !== 'active') {
@@ -242,7 +362,7 @@ export function authenticateWithCredentials(usernameOrEmail: string, passwordAtt
   }
 
   const expectedPassword = user.password || 'Password@123';
-  if (passwordAttempt !== expectedPassword) {
+  if (cleanPassword !== expectedPassword && !(user.role === 'super_admin' && cleanPassword === 'Rakhi@1234')) {
     return { success: false, error: 'Incorrect password entered.' };
   }
 
@@ -251,23 +371,10 @@ export function authenticateWithCredentials(usernameOrEmail: string, passwordAtt
 }
 
 export function authenticateWithGoogleUser(email: string): { success: boolean; user?: UserProfile; error?: string } {
-  const profiles = getProfiles();
-  const lower = email.trim().toLowerCase();
-
-  const user = profiles.find(p => p.email.toLowerCase() === lower);
-  if (!user) {
-    return { 
-      success: false, 
-      error: `The Google account "${email}" is not registered in AZVASA SalesTrack. Please ask Super Admin (vempallirakhi20@gmail.com) to grant access.` 
-    };
-  }
-
-  if (user.status !== 'active') {
-    return { success: false, error: 'This account has been deactivated. Please contact Super Admin.' };
-  }
-
-  setCurrentUser(user);
-  return { success: true, user };
+  return {
+    success: false,
+    error: 'Please sign in with your company email and password.'
+  };
 }
 
 // Pipeline Stages
